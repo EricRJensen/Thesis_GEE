@@ -1,0 +1,57 @@
+/**** Start of imports. If edited, may not auto-convert in the playground. ****/
+var ndvi = ee.Image("users/ericjensen41_default/NDVI_1984_2019"),
+    AIM = ee.FeatureCollection("users/ericjensen41_default/Thesis/Plots/AIM_modelbuff_100m");
+/***** End of imports. If edited, may not auto-convert in the playground. *****/
+// Select single year data
+// Values are flipped so divide by negative one to normalize them
+var ndvi2015 = ndvi.select('ndvi2015').divide(-1)
+
+// Subset AIM data for year 2015 // 330 plots
+var aim2015 = AIM.filterMetadata('VisitYear', 'equals', 2015)
+
+// Divide by 100 so that the range is -10 to 10 and use floor function to create 20 bins
+var ndvi2015_bin = ndvi2015.divide(100).floor()
+
+// Play with calculating NDVI class richness
+var ndviRichness = ndvi2015_bin.reduceRegions({
+  collection: aim2015,
+  reducer: ee.Reducer.countDistinct(),
+  scale:30
+})
+
+// Play with calculating NDVI class diversity
+// Calculate histogram for each plot to try to calculate diversity off of
+// Need count also for calculating proportion
+// Returns a dictionary as a field
+var ndviHistogram = ndvi2015_bin.reduceRegions({
+  collection: aim2015,
+  reducer: ee.Reducer.fixedHistogram(-10, 10, 20),
+  scale:30
+})
+
+print(ndviHistogram)
+
+// Start writing function to calculate Shannon's H
+var calcShH = function(img){
+  var hist = ee.Feature(img.get('histogram'))
+  return(hist)
+}
+
+var testF = ee.Feature(ndviHistogram.toList(1).get(0))
+var testHist = ee.Array(testF.get('histogram'))
+
+var testKeys = ee.Array(testHist.slice(1, 1, 2).project([0]))
+print(testKeys)
+
+var testVals = ee.List(testHist.slice(1, 0, 1).project([0]))
+print(testVals)
+
+
+
+
+
+
+// Plotting
+Map.addLayer(ndvi2015, {min:-200, max:1000}, 'ndvi2015')
+Map.addLayer(ndvi2015_bin, {min:-2, max:10}, 'ndvi2015_bin')
+Map.addLayer(aim2015, {}, 'AIM2015')

@@ -1,0 +1,102 @@
+/**** Start of imports. If edited, may not auto-convert in the playground. ****/
+var aimplots = ee.FeatureCollection("users/ericjensen41_default/Thesis/Plots/Allplots"),
+    fire_pts = ee.FeatureCollection("users/ericjensen41_default/Thesis/Chapter2/Fire_pointsAll");
+/***** End of imports. If edited, may not auto-convert in the playground. *****/
+print(fire_pts.first())
+
+// ------------------ Prepare data for extraction and analysis ---------------------
+// Load in species richness images and set year
+var SR_1994 = ee.Image('users/ericjensen41_default/Thesis/Outputs/SR_mosaic_1994').set('Year', 1994)
+var SR_1995 = ee.Image('users/ericjensen41_default/Thesis/Outputs/SR_mosaic_1995').set('Year', 1995)
+var SR_1996 = ee.Image('users/ericjensen41_default/Thesis/Outputs/SR_mosaic_1996').set('Year', 1996)
+var SR_1997 = ee.Image('users/ericjensen41_default/Thesis/Outputs/SR_mosaic_1997').set('Year', 1997)
+var SR_1998 = ee.Image('users/ericjensen41_default/Thesis/Outputs/SR_mosaic_1998').set('Year', 1998)
+var SR_1999 = ee.Image('users/ericjensen41_default/Thesis/Outputs/SR_mosaic_1999').set('Year', 1999)
+var SR_2000 = ee.Image('users/ericjensen41_default/Thesis/Outputs/SR_mosaic_2000').set('Year', 2000)
+var SR_2017 = ee.Image('users/ericjensen41_default/Thesis/Outputs/SR_mosaic_2017').set('Year', 2017)
+
+// In case this all gets too cumbersome, use this to write a function to load in and 
+// set the year for each species richness map
+// var yearFromID= ee.String(SR_1994.get('system:id')).slice(37,41)
+// print(yearFromID)
+
+// Compile species richness images into image collection
+var SR_IC = ee.ImageCollection([SR_1994,SR_1995,SR_1996,SR_1997,SR_1998,SR_1999,SR_2000])
+
+// Fires names to iterate over
+var fires = fire_pts.aggregate_array('Fire_Name').distinct()
+print(fires)
+
+var palettes = require('users/gena/packages:palettes');
+
+var palette = palettes.matplotlib.viridis[7]
+// var palette = palettes.colorbrewer.BrBG[7]
+
+
+// ---------------- Extract pre-fire species richness --------------------
+var extract_rr = function(fire){
+  var fire_plots = fire_pts.filterMetadata('Fire_Name', 'equals', fire)
+  var fire_year = ee.Number(fire_plots.first().get('Year'))
+  var SR_year = fire_year.subtract(1)
+  var SR_map = ee.Image(SR_IC.filterMetadata('Year', 'equals', SR_year).first())
+
+var SR_rr = SR_map.reduceRegions({
+  collection: fire_plots,
+  reducer: ee.Reducer.mean(),
+  scale:30})
+  
+var SR_rr_clean = SR_rr.map(function(f){
+  var f_clean = f.set('SpecRich', f.get('mean'))
+  return(f_clean)
+})
+return(SR_rr_clean)
+}
+
+// Mapping is not working well over my list of strings, so doing it the old fashioned way.
+var fires0 = extract_rr(fires.get(0))
+var fires1 = extract_rr(fires.get(1))
+var fires2 = extract_rr(fires.get(2))
+var fires3 = extract_rr(fires.get(3))
+var fires4 = extract_rr(fires.get(4))
+var fires5 = extract_rr(fires.get(5))
+var fires6 = extract_rr(fires.get(6))
+var fires_rr = fires0.merge(fires1).merge(fires2).merge(fires3).merge(fires4)
+                    .merge(fires5).merge(fires6)
+print(fires_rr.size())
+print(fires_rr.first())
+
+// Export CSV
+// Export.table.toDrive({
+//   collection: fires_rr,
+//   description:'SpecRich_fires',
+//   fileFormat: 'CSV'
+// });
+
+
+
+// ------------------- Visualization ----------------------------
+// Visualize the Species Richness maps
+Map.addLayer(SR_1994, {min: 0, max: 40, palette: palette}, "SpeciesN_94",false)
+Map.addLayer(SR_1995, {min: 0, max: 40, palette: palette}, "SpeciesN_95",false)
+Map.addLayer(SR_1996, {min: 0, max: 40, palette: palette}, "SpeciesN_96",false)
+Map.addLayer(SR_1997, {min: 0, max: 40, palette: palette}, "SpeciesN_97",false)
+Map.addLayer(SR_1998, {min: 0, max: 40, palette: palette}, "SpeciesN_98",false)
+Map.addLayer(SR_1999, {min: 0, max: 40, palette: palette}, "SpeciesN_99",false)
+Map.addLayer(SR_2000, {min: 0, max: 40, palette: palette}, "SpeciesN_00",false)
+Map.addLayer(SR_2017, {min: 0, max: 40, palette: palette}, "SpeciesN_17",false)
+
+// Visualize fires
+// Map.addLayer(ee.Image('users/ericjensen41_default/Thesis/Covariates/MTBS/1995dNBR'),{min:-20, max:200}, 'Fires1995')
+// Map.addLayer(ee.Image('users/ericjensen41_default/Thesis/Covariates/MTBS/1999dNBR'),{min:-20, max:200}, 'Fires1999')
+// Map.addLayer(ee.Image('users/ericjensen41_default/Thesis/Covariates/MTBS/2000dNBR'),{min:-20, max:200}, 'Fires2000')
+// Map.addLayer(ee.Image('users/ericjensen41_default/Thesis/Covariates/MTBS/2001dNBR'),{min:-20, max:200}, 'Fires2001')
+
+
+
+// Visualize field data
+
+var plots_image = aimplots.reduceToImage({
+  properties:['SpeciesN'], 
+  reducer:ee.Reducer.first()})
+  .reproject('EPSG:4326', null, 2000)
+Map.addLayer(plots_image,  {min: 0, max: 40, palette: palette}, 'Field',false)

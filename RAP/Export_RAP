@@ -1,0 +1,20 @@
+/**** Start of imports. If edited, may not auto-convert in the playground. ****/
+var GB = ee.FeatureCollection("users/ericjensen41_default/Thesis/Project_Boundaries/GBbounds");
+/***** End of imports. If edited, may not auto-convert in the playground. *****/
+var RAP = ee.ImageCollection("projects/rangeland-analysis-platform/vegetation-cover-v2")
+  .filterMetadata('year', 'equals', 2019)
+  .first()
+  //.select('SHR')
+  .clip(GB)
+print(RAP)
+  
+Map.addLayer(GB, {}, 'Great Basin')  
+Map.addLayer(RAP, {min:0, max:50}, 'Great Basin')
+
+Export.image.toDrive({
+  image: RAP,
+  description: 'RAP_SHR_2019_GB',
+  scale: 30,
+  region: GB.geometry(),
+  maxPixels: 1e13
+});

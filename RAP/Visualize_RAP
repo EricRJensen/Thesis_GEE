@@ -1,0 +1,31 @@
+/**** Start of imports. If edited, may not auto-convert in the playground. ****/
+var GB = ee.FeatureCollection("users/ericjensen41_default/Thesis/Project_Boundaries/GBbounds");
+/***** End of imports. If edited, may not auto-convert in the playground. *****/
+var RAP = ee.ImageCollection("projects/rangeland-analysis-platform/vegetation-cover-v2")
+  .select(['AFGC', 'PFGC', 'SHR'])
+  .filterMetadata('year', 'less_than', 2017)
+ 
+var visParams = {
+  min: 0,
+  max: 100,
+  bands: ['AFGC', 'PFGC', 'SHR'] } 
+  
+var RAP_RGB = RAP.map(function(img){
+  return img.visualize(visParams).clip(GB) })
+
+// Define GIF visualization arguments.
+var gifParams = {
+  'region': GB.geometry(),
+  'dimensions': 900,
+  'crs': 'EPSG:26911',
+  'framesPerSecond': 3.25,
+  'format': 'gif'
+};
+
+// Print the GIF URL to the console.
+print(RAP_RGB.getVideoThumbURL(gifParams));
+
+// Render the GIF animation in the console.
+print(ui.Thumbnail(RAP_RGB, gifParams));
+
+Map.addLayer(GB)

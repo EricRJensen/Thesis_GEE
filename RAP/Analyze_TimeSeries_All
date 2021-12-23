@@ -1,0 +1,504 @@
+/**** Start of imports. If edited, may not auto-convert in the playground. ****/
+var AIMplots = ee.FeatureCollection("users/ericjensen41_default/Thesis/Plots/Allplots"),
+    Once = ee.FeatureCollection("users/ericjensen41_default/Thesis/Chapter2/FirePolygons/Fires_BurnedOnce"),
+    Aerial = ee.FeatureCollection("users/ericjensen41_default/Thesis/Chapter2/TreatmentPolygons/LTDL_AerialSeed"),
+    Drill = ee.FeatureCollection("users/ericjensen41_default/Thesis/Chapter2/TreatmentPolygons/LTDL_DrillSeed"),
+    MTOnce = ee.FeatureCollection("users/ericjensen41_default/Thesis/Chapter2/FirePolygons/Fires_BurnedMTOnce"),
+    Unburned = ee.FeatureCollection("users/ericjensen41_default/Thesis/Chapter2/FirePolygons/Fires_Unburned"),
+    GB = ee.FeatureCollection("users/ericjensen41_default/Thesis/Project_Boundaries/GBbounds"),
+    fire_pts = ee.FeatureCollection("users/ericjensen41_default/Thesis/Chapter2/Fire_pointsAll");
+/***** End of imports. If edited, may not auto-convert in the playground. *****/
+// Reconstruct boundaries of analysis from components of unburned, once burned, and multiple times burned
+var fires_geom = Once.merge(MTOnce).merge(Unburned)
+
+// Total seeded area
+var Seeded = Drill.merge(Aerial) 
+
+//  ---------------- Preprocess the RAP data --------------------
+var RAP = ee.ImageCollection("projects/rangeland-analysis-platform/vegetation-cover-v2")
+  // .select(['AFGC', 'PFGC', 'SHR', 'TREE']);
+
+// Calculate normalized differenced index and add band
+// Perennial - annual / perennial + annual // Note: Excluding trees
+var calc_normdif = function(img){
+  // Add band for perennials
+  var per = img.select('PFGC')
+            .add(img.select('SHR'))
+            .rename('PER') 
+  var img_wPer = img.addBands(per)
+  
+  // calculate normalized difference perennial dominance index and addd one to scale between 0-2
+  var img_yr = img.get('year')
+  var normdif = img_wPer.normalizedDifference(['PER', 'AFGC']).add(1).rename('NDPDI') 
+  
+  // Add year band for various functions
+  var yearband = ee.Image.constant(img_yr).toFloat().rename("Year")
+  
+  
+  return(img_wPer.addBands(normdif).addBands(yearband))
+}
+var RAP = RAP
+          .map(calc_normdif)
+          .select(['AFGC', 'PFGC', 'SHR', 'PER', 'NDPDI', 'BG', 'Year'])
+print(RAP)
+
+
+// -------------------------------------------------------------
+// --------- Investigate Specific fires--------------------
+
+// ------------ Generate Pre- and Post-fire layers -------------
+
+
+// Fire names are:
+// 'TUANA COMPLEX' (1995)
+// 'BILK CREEK COMPLEX (DOUBLE H)' (2000)
+// 'SHIRTTAIL' (1999)
+// 'SADLER COMPLEX' (1999)
+// 'BIG JUNIPER' (2001)
+// 'WEST BASIN' (2000)
+// 'SOMBRERO' (1999)
+
+// Calculate potential response variables
+// 1) NDPDI slopes over 35 years (apply to all bands)
+// 2) Estimate increases in interannual variation through time
+// 3) Years to recovery of 80% of 1984/1985 NDPDI based on post-fire slopes
+// 4) (2016-2019 median) / (1984-1985 median) 
+// 5) 2016-2019 median (contemporary condition)—already calculated
+
+
+
+
+// 1) Calculate 35-year slopes
+var NDPDI_slopes = RAP
+                  .select(['Year', 'NDPDI'])
+                  .reduce(ee.Reducer.linearFit())
+                  .select('scale')
+var AFGC_slopes = RAP
+                  .select(['Year', 'AFGC'])
+                  .reduce(ee.Reducer.linearFit())
+                  .select('scale')
+var PER_slopes = RAP
+                  .select(['Year', 'PER'])
+                  .reduce(ee.Reducer.linearFit())
+                  .select('scale')
+var BG_slopes = RAP
+                  .select(['Year', 'BG'])
+                  .reduce(ee.Reducer.linearFit())
+                  .select('scale')
+var RAP_slopes = ee.ImageCollection([NDPDI_slopes, AFGC_slopes, PER_slopes, BG_slopes])
+                  .toBands()
+                  .rename(['NDPDI_slopes', 'AFGC_slopes', 'PER_slopes', 'BG_slopes'])
+                  .clip(fires_geom.geometry())
+// print(RAP_slopes, 'RAP_slopes') 
+
+
+
+
+
+// 2) Estimate increases in interannual variation through time
+// Calculate 5 year rolling standard deviations
+// Year list to iterate over
+var YearList = ee.List.sequence(1985,2019,1)
+
+// Drop Year band from initial IC to calculate new one below
+var RAP_forStd = RAP.select(['AFGC', 'PFGC', 'SHR', 'PER', 'NDPDI', 'BG'])
+  
+// Function to calculate 5-year moving windows of standard deviations
+var RAP_MovingStandardDeviation = ee.ImageCollection(YearList.map(function(year){
+  
+  // Cast year to ee.Number()
+  var YrNum = ee.Number(year)
+  
+  // Define start and end of window and parse as strings
+  var StrWnd = ee.String(YrNum.toInt().subtract(5)).cat('-01-01')
+  var EndWnd = ee.String(YrNum.toInt()).cat('-01-01')
+  
+  // Filter by start and end dates of windows
+  var RAP_fiveYear = RAP_forStd.filterDate(StrWnd, EndWnd)
+  
+  // Calculate the standard deviations for the five year window
+  var RAP_std = RAP_fiveYear.reduce(ee.Reducer.stdDev())
+  
+  // Add Year band for calculating slopes by
+  var RAP_std = RAP_std
+                  .addBands(ee.Image([YrNum])
+                  .rename(ee.String('Year'))
+                  .toFloat())
+  
+  return(RAP_std)
+}))
+
+// Calculate standard deviation slopes
+var NDPDI_std_slopes = RAP_MovingStandardDeviation
+              .select(['Year', 'NDPDI_stdDev'])
+              .reduce(ee.Reducer.linearFit())
+              .select('scale')
+var AFGC_std_slopes = RAP_MovingStandardDeviation
+              .select(['Year', 'AFGC_stdDev'])
+              .reduce(ee.Reducer.linearFit())
+              .select('scale')
+var PER_std_slopes = RAP_MovingStandardDeviation
+              .select(['Year', 'PER_stdDev'])
+              .reduce(ee.Reducer.linearFit())
+              .select('scale')
+var BG_std_slopes = RAP_MovingStandardDeviation
+              .select(['Year', 'BG_stdDev'])
+              .reduce(ee.Reducer.linearFit())
+              .select('scale')
+// Combine into single multiband clipped image
+var RAP_std_slopes = ee.ImageCollection([NDPDI_std_slopes, AFGC_std_slopes, PER_std_slopes, BG_std_slopes])
+          .toBands()
+          .rename(['NDPDI_std_slopes', 'AFGC_std_slopes', 'PER_std_slopes', 'BG_std_slopes'])
+          .clip(fires_geom.geometry())
+// print(RAP_std_slopes, 'RAP_std_slopes')
+
+
+
+
+
+
+
+// 3) (2016-2019 median) / (1984-1984 median) 
+var calculate_medians = function(fire){
+  var fire_f = fires_geom.filterMetadata('Fire_Name', 'equals', fire)
+  var fire_year = ee.Number(fire_f.first().get('Year'))
+  
+  var prefire = RAP.select('AFGC', 'PFGC', 'SHR', 'NDPDI', 'BG')
+                   .filterMetadata('year', 'greater_than', fire_year.subtract(4))
+                   .filterMetadata('year', 'less_than', fire_year)
+                   .reduce(ee.Reducer.median())
+                   //.rename('NDPDI_pre')
+
+  var postfire = RAP.select('NDPDI')
+                 .filterMetadata('year', 'greater_than', fire_year.add(13))
+                 .filterMetadata('year', 'less_than', fire_year.add(18))
+                 .reduce(ee.Reducer.median())
+                 .rename('NDPDI_post')
+                 
+  // var diff = prefire.select('NDPDI').subtract(postfire).rename('NDPDI_diff')
+  return(prefire.addBands(postfire).clip(fire_f))
+}
+var fires = fire_pts.aggregate_array('Fire_Name').distinct()
+
+var PrePostDiff = ee.ImageCollection(fires.map(calculate_medians)).mosaic()
+
+// var median_init = RAP
+//             .filterDate('1984-01-01', '1986-01-01')
+//             .reduce(ee.Reducer.median())
+//             .clip(fires_geom.geometry())
+// var median_end = RAP
+//             .filterDate('2016-01-01', '2020-01-01')
+//             .reduce(ee.Reducer.median())
+//             .clip(fires_geom.geometry())
+// var PrePostDiv = median_end
+//             .divide(median_init)
+//             .clip(fires_geom.geometry())
+// print(PrePostDiv, 'PrePostDiv')
+
+
+
+
+
+
+
+
+
+
+
+
+
+// 4) Years to recovery of 80% of 1984/1985 NDPDI based on post-fire slopes for sites that burned once based on 15 year post-fire image collection
+// Get 15-year NDPDI post-fire slopes of recovery
+var Calc_PostFire_slopes = function(fire_caps){
+  
+  // -------- Calculate post-fire slopes and intercepts ------------------
+  // Extract specific fire and the year of the fire
+  var fire = fires_geom.filterMetadata('Fire_Name', 'equals', fire_caps)
+  var fire_yr = ee.Number(fire.first().get('Year')).add(1) // Year of fire often represents pre-fire condition
+  
+  // Filter Bounds to fire boundary and filter to 15 years after fire
+  var fire_IC_post = RAP
+                  .filterBounds(fire.geometry())
+                  .filterDate(ee.String(fire_yr).cat('-01-01'), ee.String('2020-01-01')) // ###############!!!!!!!!!!
+  
+  // Add PostFire year band to each image in the filtered collection (0-15)
+  var add_PFyear = function(i){
+    var PF_yearband = ee.Image.constant(ee.Number(i.get('year')).subtract(fire_yr)).toFloat().rename("PF_Year")
+    return(i.addBands(PF_yearband)) }
+    
+  var fire_IC_post = fire_IC_post.map(add_PFyear)
+  
+  // Calculate post-fire slope for NDPDI and clip to fire boundary
+  var post_ndpdi_slopes = fire_IC_post
+                    .select(['PF_Year', 'NDPDI'])
+                    .reduce(ee.Reducer.linearFit())
+                    .clip(fire.geometry())
+  
+  // -------- Calculate pre-fire medians for three years before the fire --------
+  // Filter Bounds to fire boundary and filter to 3 years prior to fire
+  var fire_IC_pre = RAP
+              .filterBounds(fire.geometry())
+              .filterDate(ee.String(fire_yr.subtract(4)).cat('-01-01'), ee.String(fire_yr.subtract(1)).cat('-01-01'))
+  
+  // Calculate pre-fire median and 80% of pre-fire median
+  var pre_median = fire_IC_pre
+              .select('NDPDI')
+              .reduce(ee.Reducer.median())
+  var pre_median_pt8 = pre_median.multiply(.8)
+  
+  // Combine images for analysis
+  var post_ndpdi_slopes = post_ndpdi_slopes.addBands(pre_median).addBands(pre_median_pt8).clip(fire)
+  
+  return(post_ndpdi_slopes)
+}
+
+// Apply function for each fire and mosaic
+var BigSlopes = Calc_PostFire_slopes('BIG JUNIPER')
+var BilSlopes = Calc_PostFire_slopes('BILK CREEK COMPLEX (DOUBLE H)')
+var ShiSlopes = Calc_PostFire_slopes('SHIRTTAIL')
+var SomSlopes = Calc_PostFire_slopes('SOMBRERO')
+var SadSlopes = Calc_PostFire_slopes('SADLER COMPLEX')
+var TuaSlopes = Calc_PostFire_slopes('TUANA COMPLEX')
+var WesSlopes = Calc_PostFire_slopes('WEST BASIN')
+
+
+// Mosaic and rename the output bands
+var PostFire_Slopes = ee.ImageCollection([BigSlopes, BilSlopes, ShiSlopes, SomSlopes, SadSlopes, TuaSlopes, WesSlopes])
+                        .mosaic()
+var PostFire_Slopes = PostFire_Slopes.rename(['Slope', 'Intercept', 'Prefire', 'Prefire_pt8'])
+
+
+// Subtract intercept from pre-fire image to calculate magnitude of the initial drop 
+var Fire_Magnitude = PostFire_Slopes
+                .select('Prefire').subtract(PostFire_Slopes.select('Intercept'))
+                .rename('Magnitude')
+var Fire_Magnitude_pt8 = PostFire_Slopes
+                .select('Prefire_pt8').subtract(PostFire_Slopes.select('Intercept'))
+                .rename('Magnitude_pt8')
+var PostFire_Slopes = PostFire_Slopes.addBands(Fire_Magnitude).addBands(Fire_Magnitude_pt8)
+
+
+// Mask values that are already greater than 80% of prefire NDPDI at their y-intercept // Recovered in year 1
+var Post_Inc_mask = PostFire_Slopes
+                      .select('Intercept')
+                      .lte(PostFire_Slopes.select('Prefire_pt8'))
+                      .rename('RecovYear1')
+var Post_Inc_later = PostFire_Slopes
+                      .select('Intercept')
+                      .gte(PostFire_Slopes.select('Prefire_pt8'))
+                      .rename('RecovYear1')
+var PostFire_Slopes = PostFire_Slopes.updateMask(Post_Inc_mask)
+
+
+// For remaining values, mask slopes less than 0 and set as 200 for 'not expected to recover' prefire condition // Never recover
+var Neg_Slope_mask = PostFire_Slopes.select('Slope').gte(0)
+                      .rename('RecovNever')
+var Neg_Slopes_later = PostFire_Slopes.select('Slope').lte(0)
+                      .rename('RecovNever')  // for later mosaicking
+var PostFire_Slopes = PostFire_Slopes.updateMask(Neg_Slope_mask)
+
+
+// For remaining values, multiply the magnitude by .8 to get 80% recovery threshold. Then divide that value by the slope to get years to recovery
+var YearsToRecov =  PostFire_Slopes.select('Magnitude_pt8').divide(PostFire_Slopes.select('Slope'))
+                                    .round()
+                                    .toInt()
+                                    .rename('YearsToRecov')
+
+// Mosaic the components to create a years to recovery map
+var RecovNever = Neg_Slopes_later.updateMask(Neg_Slopes_later)
+                                    .remap([1], [1000])
+                                    .round()
+                                    .toInt()
+                                    .rename('YearsToRecov')
+                                    
+var RecovYear0 = Post_Inc_later.updateMask(Post_Inc_later)
+                                    .remap([1], [0])
+                                    .round()
+                                    .toInt()
+                                    .rename('YearsToRecov')
+
+var YearsToRecov = ee.ImageCollection([YearsToRecov, RecovNever, RecovYear0]).mosaic()
+var RecovBi = YearsToRecov.lt(1000)
+// Map.addLayer(RecovBi, {}, 'RecovBi')
+
+var NoRecovMask = YearsToRecov.neq(1000)
+var RecovCont = YearsToRecov.updateMask(NoRecovMask)
+// Map.addLayer(RecovCont, {min:0, max:100, palette: ['#008000', '#9ACD32','#FFFF00', '#ffae42', '#FFA500', 'ff4500', '#FF0000']}, 'NDPDI_RecovCont')
+
+
+// Visualize input layers in analysis
+// Map.addLayer(PostFire_Slopes.select('Slope'), {min:-.05, max: .05, palette: ['red', 'white', 'green']}, 'Slopes',false)
+// Map.addLayer(PostFire_Slopes.select('Intercept'), {min:0, max: 2}, 'Intercepts',false)
+// Map.addLayer(PostFire_Slopes.select('Prefire'), {min:0, max: 2}, 'Prefire',false)
+// Map.addLayer(PostFire_Slopes.select('Magnitude'), {min:-1, max: 1.5}, 'Magnitude',false)
+
+
+
+
+
+
+
+
+
+// ------------- Generate histograms of contemporary NDPDI based on times burned and seeding --------------------------
+// //Get the seeding types
+// var ndpdi_median_end = median_end.select('NDPDI_median')
+
+// // Visualization parameters for NDPDI histograms
+// var options = {
+//     title: 'NDPDI contemporary values',
+//     hAxis: {
+//       viewWindowMode: 'explicit',
+//       viewWindow: {
+//         min: 0,
+//         max: 2    }}};
+
+// // Plot NDPDI histograms by fire frequency strata
+// print(ui.Chart.image.histogram({image:ndpdi_median_end, region: Unburned.geometry(), scale:30}).setOptions(options), "NDPDI Unburned");
+// print(ui.Chart.image.histogram({image:ndpdi_median_end, region: Once.geometry(), scale:30}).setOptions(options), "NDPDI Burned Once");
+// print(ui.Chart.image.histogram({image:ndpdi_median_end, region: MTOnce.geometry(), scale:30}).setOptions(options), "NDPDI Burned More Than Once");
+
+
+
+// // Plot burned-once NDPDI histograms by seeding strategy
+// // Create charts for sites that burned once based on unseeded, drill, and aerial seeding
+// var ndpdi_median_end_once = ndpdi_median_end.clip(Once.geometry())
+
+
+// // Create images for drill, aerial, and unseeded 
+// var ndpdi_median_end_once_drill = ndpdi_median_end_once.clip(Drill)
+// var ndpdi_median_end_once_aeria = ndpdi_median_end_once.clip(Aerial)
+
+// var Seeded = Aerial.merge(Drill)
+// var maskInside = function(image) {
+//   var mask = ee.Image.constant(1).clip(Seeded).mask().not()
+//   return image.updateMask(mask)
+// }
+// var ndpdi_median_end_once_unsee = maskInside(ndpdi_median_end_once)
+
+
+// print(ui.Chart.image.histogram({image:ndpdi_median_end_once_drill, region: Once.geometry(), scale:30}).setOptions(options), "NDPDI Burned Once | Drill Seeded");
+// print(ui.Chart.image.histogram({image:ndpdi_median_end_once_aeria, region: Once.geometry(), scale:30}).setOptions(options), "NDPDI Burned Once | Aerial Seeded");
+// print(ui.Chart.image.histogram({image:ndpdi_median_end_once_unsee, region: Once.geometry(), scale:30}).setOptions(options), "NDPDI Burned Once | Unseeded");
+
+
+
+
+
+
+
+
+
+// //  ----------------------------- Export reduce regions -------------------------------------
+// // Extract values from layers of interest
+// var RecovImg = ee.ImageCollection([PrePostDiff]) //RecovBi, RecovCont, 
+//                           .toBands()
+//                           .rename('AFGC_pre', 'PFGC_pre', 'SHR_pre', 'NDPDI_pre', 'BG_pre', 'NDPDI_post')
+//                           // .rename(['RecovBi', 'RecovCont', 'NDPDI_pre', 'NDPDI_post', 'NDPDI_diff'])
+// print(RecovImg)
+
+// var Points_RR = RecovImg.reduceRegions({collection: fire_pts, reducer:ee.Reducer.mean(), scale:30})
+
+// Export.table.toDrive({
+//     collection: Points_RR,
+//     description: 'Recov_Response',
+//     fileFormat: 'csv'}) 
+
+
+
+
+
+
+//  --------------- Export images -----------------------------------------------
+// Export pre-fire NDPDI for SaddleDraw
+var SaddleDraw = ee.FeatureCollection('users/ericjensen41_default/Thesis/Project_Boundaries/SaddleDraw').first()
+var Pre_SaddleDraw = RAP.select(['NDPDI', 'AFGC'])
+                      .filterMetadata('year', 'less_than', 2014)
+                      .filterMetadata('year', 'greater_than', 2010)
+                      .reduce(ee.Reducer.median())
+                      .rename(['NDPDI_pre', 'AFGC_pre'])
+                      .clip(SaddleDraw.geometry())
+                      
+// Reproject and resample image by nearest neighbors to match Landsat
+var LS_ref = ee.Image('users/zackrwerner/landsat_harm_reference')
+var LS_proj = LS_ref.projection() // get projection of landsat harmonized image
+var pre_resample = Pre_SaddleDraw.resample().reproject(LS_proj) //reproject defaults to nn 
+
+//Export 
+Export.image.toDrive({
+  image: Pre_SaddleDraw.select('NDPDI_pre'),
+  description: 'NDPDI_pre',
+  scale: 30,
+  region: SaddleDraw.geometry()
+});
+
+Export.image.toDrive({
+  image: Pre_SaddleDraw.select('AFGC_pre'),
+  description: 'AFGC_pre',
+  scale: 30,
+  region: SaddleDraw.geometry()
+});
+
+
+// Post-fire SaddleDraw Fire
+var Post_SaddleDraw = RAP.select('NDPDI')
+                      .filterMetadata('year', 'less_than', 2020)
+                      .filterMetadata('year', 'greater_than', 2016)
+                      .reduce(ee.Reducer.median())
+                      .clip(SaddleDraw.geometry())
+                      
+//Export 
+Export.image.toDrive({
+  image: Post_SaddleDraw,
+  description: 'NDPDI_post',
+  scale: 30,
+  region: SaddleDraw.geometry()
+});
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+// // -------- Map the data
+// // Map contemporary NDPDI
+// Map.addLayer(median_end.select('NDPDI_median'), {min:0, max:2}, 'NDPDI_contemporary', false)
+// Map.addLayer(PrePostDiff.select('NDPDI_post'), {min:0, max:2})
+// Map.addLayer(fire_pts.draw({color: 'red',pointRadius:1, strokeWidth: 1}), {width:5})
+
+// // // Map the 35 year slopes
+// Map.addLayer(RAP_slopes.select(['NDPDI_slopes']), {min:-.05, max:0}, 'NDPDI slopes',false)
+// Map.addLayer(RAP_slopes.select(['AFGC_slopes']), {min:0, max:2}, 'AFGC slopes',false)
+// Map.addLayer(RAP_slopes.select(['PER_slopes']), {min:-2, max:0}, 'PER slopes',false)
+// Map.addLayer(RAP_slopes.select(['BG_slopes']), {min:-1, max:0}, 'BG slopes',false)
+
+// // // Map 35 year slopes of standard deviations
+// Map.addLayer(RAP_std_slopes.select(['NDPDI_std_slopes']), {min:-.01, max:.01}, 'NDPDI stdDev slopes',false)
+// Map.addLayer(RAP_std_slopes.select(['AFGC_std_slopes']), {min:0, max:.5}, 'AFGC stdDev slopes',false)
+// Map.addLayer(RAP_std_slopes.select(['PER_std_slopes']), {min:0, max:.5}, 'PER stdDev slopes',false)
+// Map.addLayer(RAP_std_slopes.select(['BG_std_slopes']), {min:0, max:.5}, 'BG stdDev slopes',false)
+
+// // // Add fires and treatment polygons
+// Map.addLayer(Unburned, {color: '00FF00'}, 'Unburned',false)
+// Map.addLayer(Once, {color: 'FFFF00'}, 'BurnedOnce', false)
+// Map.addLayer(MTOnce, {color: 'FF0000'}, 'BurnedMTOnce', false)
+// Map.addLayer(Drill, {color: 'purple'}, 'Drill', false)
+// Map.addLayer(Aerial, {color: 'pink'}, 'Aerial', false)
+
+// // Map median differenced image over entire RAP dataset (2016-2019 median / 1984-85 median)
+// //Map.addLayer(PrePostDiv.select('NDPDI_median'), {min:0, max:1}, 'NDPDI_DiffMedian', false)
+
+// print(YearsToRecov)
+// var pctileYrs = YearsToRecov.reduceRegion({geometry: fires_geom.geometry(), reducer: ee.Reducer.percentile([50,75,90,95]), scale: 30, maxPixels:1e13})
+// print(pctileYrs, 'pctileYrs')
+
+// // Map years to recovery of NDPDI
+// Map.addLayer(YearsToRecov, {min:0, max:100, palette: ['#008000', '#9ACD32','#FFFF00', '#ffae42', '#FFA500', 'ff4500', '#FF0000']}, 'NDPDI_YearsToRecov')

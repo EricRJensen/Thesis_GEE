@@ -1,0 +1,83 @@
+/**** Start of imports. If edited, may not auto-convert in the playground. ****/
+var GB = 
+    /* color: #ffc82d */
+    /* shown: false */
+    /* displayProperties: [
+      {
+        "type": "rectangle"
+      }
+    ] */
+    ee.Geometry.Polygon(
+        [[[-124.685021460414, 45.452198710081795],
+          [-124.685021460414, 34.9487272060692],
+          [-108.249474585414, 34.9487272060692],
+          [-108.249474585414, 45.452198710081795]]], null, false),
+    ndvi = ee.ImageCollection("MODIS/006/MOD13A1");
+/***** End of imports. If edited, may not auto-convert in the playground. *****/
+// Filter image collections by date
+var ndvi2000 = ndvi.filterDate('2000-05-01', '2000-09-15')
+var ndvi2001 = ndvi.filterDate('2001-05-01', '2001-09-15')
+var ndvi2002 = ndvi.filterDate('2002-05-01', '2002-09-15')
+var ndvi2003 = ndvi.filterDate('2003-05-01', '2003-09-15')
+var ndvi2004 = ndvi.filterDate('2004-05-01', '2004-09-15')
+var ndvi2005 = ndvi.filterDate('2005-05-01', '2005-09-15')
+var ndvi2006 = ndvi.filterDate('2006-05-01', '2006-09-15')
+var ndvi2007 = ndvi.filterDate('2007-05-01', '2007-09-15')
+var ndvi2008 = ndvi.filterDate('2008-05-01', '2008-09-15')
+var ndvi2009 = ndvi.filterDate('2009-05-01', '2009-09-15')
+var ndvi2010 = ndvi.filterDate('2010-05-01', '2010-09-15')
+var ndvi2011 = ndvi.filterDate('2011-05-01', '2011-09-15')
+var ndvi2012 = ndvi.filterDate('2012-05-01', '2012-09-15')
+var ndvi2013 = ndvi.filterDate('2013-05-01', '2013-09-15')
+var ndvi2014 = ndvi.filterDate('2014-05-01', '2014-09-15')
+var ndvi2015 = ndvi.filterDate('2015-05-01', '2015-09-15')
+var ndvi2016 = ndvi.filterDate('2016-05-01', '2016-09-15')
+var ndvi2017 = ndvi.filterDate('2017-05-01', '2017-09-15')
+var ndvi2018 = ndvi.filterDate('2018-05-01', '2018-09-15')
+var ndvi2019 = ndvi.filterDate('2019-05-01', '2019-09-15')
+
+// Merge image collections
+var ndvi2000s = ndvi2000
+                    .merge(ndvi2001)
+                    .merge(ndvi2002)
+                    .merge(ndvi2003)
+                    .merge(ndvi2004)
+                    .merge(ndvi2005)
+                    .merge(ndvi2006)
+                    .merge(ndvi2007)
+                    .merge(ndvi2008)
+                    .merge(ndvi2009)
+                    .merge(ndvi2010)
+                    .merge(ndvi2011)
+                    .merge(ndvi2012)
+                    .merge(ndvi2013)
+                    .merge(ndvi2014)
+                    .merge(ndvi2015)
+                    .merge(ndvi2016)
+                    .merge(ndvi2017)
+                    .merge(ndvi2018)
+                    .merge(ndvi2019)
+
+// Select only NDVI band for each image, calculate the median across all images for NDVI, and clip to Colorado
+var ndvi2000s = ndvi2000s.select('NDVI').median().clip(GB)
+
+var visParams = {
+  min: -500,
+  max: 8000.0,
+  palette: [
+    'FFFFFF', 'CE7E45', 'DF923D', 'F1B555', 'FCD163', '99B718', '74A901',
+    '66A000', '529400', '3E8601', '207401', '056201', '004C00', '023B01',
+    '012E01', '011D01', '011301'
+  ],
+};
+
+// View the resulting image
+Map.addLayer(ndvi2000s,visParams)
+
+// Export the image to Google Drive
+Export.image.toDrive({
+  image: ndvi2000s,
+  description: 'GB_NDVI_composite',
+  scale: 250,
+  region: GB
+});

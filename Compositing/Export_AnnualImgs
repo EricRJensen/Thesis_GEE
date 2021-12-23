@@ -1,0 +1,71 @@
+/**** Start of imports. If edited, may not auto-convert in the playground. ****/
+var test_roi = ee.FeatureCollection("users/ericjensen41_default/Thesis/Project_Boundaries/LIIIGBBoundary"),
+    AIM_buffer = ee.FeatureCollection("users/ericjensen41_default/Thesis/Plots/AIM_modelbuff_100m");
+/***** End of imports. If edited, may not auto-convert in the playground. *****/
+
+// date: 2018-04-19
+// author: Zhiqiang Yang  | zhiqiang.yang@oregonstate.edu
+//         Justin Braaten | jstnbraaten@gmail.com
+//         Robert Kennedy | rkennedy@coas.oregonstate.edu
+// website: https://github.com/eMapR/LT-GEE
+
+// Batch export script
+// var batch = require('users/fitoprincipe/geetools:batch')
+
+// Add AIM plots to map and print
+//Map.addLayer(AIM_buffer, {}, 'AIM buffer')
+print(AIM_buffer, 'AIM buffer')
+
+//########################################################################################################
+//##### INPUTS ##### 
+//########################################################################################################
+// define a geometry - there are lots of ways to do this, see the GEE User guide
+//var geometry = ee.FeatureCollection('ft:10uDvL5YjRQGjtZZhHWUx9fn8Ijd0HMu7IZuULxSj')
+//var aoi = geometry; // should be a GEE geometry object - here we are getting it from an drawn polygon
+
+exports.doc = 'These are functions to run LandTrendr';
+var ltgee = require('users/emaprlab/public:Modules/LandTrendr.js');
+var aoi = test_roi;
+
+// define years and dates to include in landsat image collection
+var startYear  = 1984;    // what year do you want to start the time series 
+var endYear    = 1984;    // what year do you want to end the time series
+var startDay   = '04-01'; // what is the beginniing of date filter | month-day
+var endDay     = '06-15'; // what is the end of date filter | month-day
+
+var B2 = 'B2';
+var ftvList1 = ['B2'];
+var B3 = 'B3';
+var ftvList2 = ['B3'];
+var B4 = 'B4';
+var ftvList3 = ['B4'];
+var B5 = 'B5';
+var ftvList4 = ['B5'];
+var B7 = 'B7';
+var ftvList5 = ['B7'];
+
+
+///////////////////////////////////////////////////////////////////////////////////////////
+////    BUILD ANNUAL IMAGE COLLECTION TO ASSESS UNFITTED DATA COVERAGE   /////////////////
+/////////////////////////////////////////////////////////////////////////////////////////
+
+var annualSRcollection = ltgee.buildSRcollection(startYear, endYear, startDay, endDay, aoi);
+var annualLTcollection1 = ltgee.buildLTcollection(annualSRcollection, B2, ftvList1);
+var annualLTcollection2 = ltgee.buildLTcollection(annualSRcollection, B3, ftvList2);
+var annualLTcollection3 = ltgee.buildLTcollection(annualSRcollection, B4, ftvList3);
+var annualLTcollection4 = ltgee.buildLTcollection(annualSRcollection, B5, ftvList4);
+var annualLTcollection5 = ltgee.buildLTcollection(annualSRcollection, B7, ftvList5);
+
+// -----------------------------------------
+
+var toExport = annualSRcollection.first().select(ee.List(['B2', 'B3', 'B4', 'B5', 'B7']))
+print(toExport)
+
+Export.image.toAsset({
+  image: toExport,
+  description: startYear+'_Composite',
+  assetId: startYear+'_Composite',
+  scale: 30,
+  region: test_roi,
+  maxPixels: 1e13
+});

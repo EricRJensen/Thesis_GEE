@@ -1,0 +1,179 @@
+/**** Start of imports. If edited, may not auto-convert in the playground. ****/
+var rdnbr = ee.Image("users/ericjensen41_default/Thesis/Covariates/RdNBR_GB_1984_2017"),
+    dnbr = ee.Image("users/ericjensen41_default/Thesis/Covariates/dNBR_GB_1984_2017"),
+    GBbb = ee.FeatureCollection("users/ericjensen41_default/Thesis/Project_Boundaries/GB_BoundingBox");
+/***** End of imports. If edited, may not auto-convert in the playground. *****/
+// Cast dNBR raster image bands to images in image collection 
+var d = dnbr.reproject('EPSG:4326', null, 30)
+var dnbr_IC = ee.ImageCollection([d.select(0),d.select(1),d.select(2),d.select(3),d.select(4),d.select(5),d.select(6),d.select(7),
+                                d.select(8),d.select(9),d.select(10),d.select(11),d.select(12),d.select(13),d.select(14),d.select(15),
+                                d.select(16),d.select(17),d.select(18),d.select(19),d.select(20),d.select(21),d.select(22),d.select(23),
+                                d.select(24),d.select(25),d.select(26),d.select(27),d.select(28),d.select(29),d.select(30),d.select(31),
+                                d.select(32),d.select(33)])
+                              
+// Cast RdNBR raster image bands to images in image collection 
+var R = rdnbr.reproject('EPSG:4326', null, 30)
+var rdnbr_IC = ee.ImageCollection([R.select(0),R.select(1),R.select(2),R.select(3),R.select(4),R.select(5),R.select(6),R.select(7),
+                                R.select(8),R.select(9),R.select(10),R.select(11),R.select(12),R.select(13),R.select(14),R.select(15),
+                                R.select(16),R.select(17),R.select(18),R.select(19),R.select(20),R.select(21),R.select(22),R.select(23),
+                                R.select(24),R.select(25),R.select(26),R.select(27),R.select(28),R.select(29),R.select(30),R.select(31),
+                                R.select(32),R.select(33)])
+
+// Add year property to each image collection
+var add_year = function(image){
+  var index_str = image.get('system:index')
+  var index_num = ee.Number.parse(index_str);
+  return(image.set({'Year': ee.Number(1984).add(index_num)} )) }
+var dnbr_IC = dnbr_IC.map(add_year)
+var rdnbr_IC = rdnbr_IC.map(add_year)
+
+// Combine image collections // this way preserves order of images by year for some reason...
+var combine_IC = function(image){
+  var year = image.get('Year')
+  var rdnbr_year = rdnbr_IC.filterMetadata('Year', 'equals', year).first()
+  var image_wrdnbr = image.addBands(rdnbr_year)
+  return(image_wrdnbr)
+}
+var fire_IC = dnbr_IC.map(combine_IC)
+
+
+
+
+// Create a constant image with the year of fire
+// Function to generate an image where each pixel that burned  in each yearly band has the value of the year, all other pixels are masked
+var const_FireYear = function(image){
+  var indvYear = ee.Image(image).select(0)
+  var yearStr = ee.String(indvYear.bandNames().get(0)).slice(4,8) // select year substring of bandname
+  var yearNum = ee.Number.parse(yearStr) // convert year substring to a number
+  var yearConstant = ee.Image([yearNum]).rename(ee.String('FireYear')) // Create image with each pixel having the value of the year
+  var yearMask = indvYear // Mask to remove remaining pixels that didn't burn during the year
+  var yearMasked = yearConstant.updateMask(yearMask)
+  var image_const = image.addBands(yearMasked)
+  return(image_const)  }
+var fire_IC = fire_IC.map(const_FireYear)
+
+
+// Create years of MTBS band
+var const_YearsOfMTBS = function(image){
+  var indvYear = ee.Image(image).select(0)
+  var yearStr = ee.String(indvYear.bandNames().get(0)).slice(4,8) // select year substring of bandname
+  var yearNum = ee.Number.parse(yearStr).subtract(1983) // convert year substring to a number and subtract 1983 to get years of MTBS
+  var yearConstant = ee.Image([yearNum]).rename(ee.String('YearsOfMTBS')).clip(GBbb.first()) // Create image with each pixel having the value of the year
+  var image_const = image.addBands(yearConstant.clip(GBbb.geometry()))
+  return(image_const)  }
+var fire_IC = fire_IC.map(const_YearsOfMTBS)  
+
+
+
+
+// // Create years since fire band
+var FireYear_IC = fire_IC.select('FireYear')  // Get IC of FireYears to reduce over in function below
+
+var YearsSinceFire = function(image){
+  var year = ee.Number(image.get('Year')) // get year of image
+  var FireYear_IC_spec = FireYear_IC.filterMetadata('Year', 'less_than', year.add(1)) // Filter FireYear_IC by the year and convert to multiband image
+  var FireYear_I_spec = FireYear_IC_spec.toBands()
+  var LastFire = FireYear_I_spec.reduce(ee.Reducer.max()) // Most recent fire will be the maximum
+  var YearsSinceFire = LastFire.subtract(year).abs().rename(ee.String('YearsSinceFire')).unmask(year.subtract(1983)) // Set NA values to constant = years of MTBS
+  var image_YearsSinceFire = image.addBands(YearsSinceFire.clip(GBbb.geometry())) // Add the new band to the image collection and clip to GB geometry
+  return image_YearsSinceFire
+}
+var fire_IC = fire_IC.map(YearsSinceFire)
+
+
+
+
+// Create fire count band
+var FireCount = function(image){
+  var year = ee.Number(image.get('Year')) // get year of image
+  var FireCount_IC_spec = FireYear_IC.filterMetadata('Year', 'less_than', year.add(1)) // Filter FireYear_IC by the year and convert to multiband image
+  var FireCount_I_spec = FireCount_IC_spec.toBands()
+  var FireCount = FireCount_I_spec.reduce(ee.Reducer.count()).rename(ee.String('FireCount')).unmask(0) // Most recent fire will be the maximum // Set NA = 0
+  var image_FireCount = image.addBands(FireCount.clip(GBbb.geometry())) // Add the new band to the image collection and clip to GB geometry
+  return image_FireCount
+}
+var fire_IC = fire_IC.map(FireCount)
+
+
+
+
+// Add Fire Frequency Band
+var FireFreq = function(image){
+  var FireCount = image.select('FireCount')
+  var YearsOfMTBS = image.select('YearsOfMTBS')
+  var FireFreq = FireCount.divide(YearsOfMTBS).rename(ee.String('FireFreq'))
+  var image_FireFreq = image.addBands(FireFreq.clip(GBbb.geometry())) // Add the new band to the image collection and clip to GB geometry
+  return image_FireFreq
+  
+}
+var fire_IC = fire_IC.map(FireFreq)
+
+
+// Add Fire Return Interval band
+var FireReturn = function(image){
+  var FireCount = image.select('FireCount')
+  var YearsOfMTBS = image.select('YearsOfMTBS')
+  var FireReturn = YearsOfMTBS.divide(FireCount).rename(ee.String('FireReturnInt'))
+  var image_FireReturn = image.addBands(FireReturn.clip(GBbb.geometry())) // Add the new band to the image collection and clip to GB geometry
+  return image_FireReturn
+  
+}
+var fire_IC = fire_IC.map(FireReturn)
+
+
+
+
+// Add bands for severity of most severe fire (dNBR and RdNBR)
+var MaxSeverity = function(image){
+  var year = ee.Number(image.get('Year')) // get year of image
+  // Get mutliband images of fire severity
+  var dnbr_IC_spec = dnbr_IC.filterMetadata('Year', 'less_than', year.add(1)) // Filter dnbr_IC by the year and convert to multiband image
+  var dnbr_I_spec = dnbr_IC_spec.toBands()
+  var rdnbr_IC_spec = rdnbr_IC.filterMetadata('Year', 'less_than', year.add(1)) // Filter rdnbr_IC by the year and convert to multiband image
+  var rdnbr_I_spec = rdnbr_IC_spec.toBands()
+  // Reduce to highest severity pixels, fill NA values with 0, and clip to Great Basin
+  var dnbrMaxSev = dnbr_I_spec.reduce(ee.Reducer.max()).rename(ee.String('dnbrMaxSev')).unmask(0).clip(GBbb.geometry())  // Most severe fire will be the maximum value (dNBR)
+  var rdnbrMaxSev = rdnbr_I_spec.reduce(ee.Reducer.max()).rename(ee.String('rdnbrMaxSev')).unmask(0).clip(GBbb.geometry())  // Most severe fire will be the maximum value (RdNBR)
+  var MaxSev_I = ee.Image([dnbrMaxSev, rdnbrMaxSev])
+  // Add dnbr and rdnb maximum severity bands
+  var image_MaxSev = image.addBands(MaxSev_I) // Add the new band to the image collection and clip to GB geometry
+  return image_MaxSev
+}
+var fire_IC = fire_IC.map(MaxSeverity)
+
+
+
+// Add bands for severity of most recent fire (dNBR and RdNBR)
+var RecSeverity = function(image){
+  var year = ee.Number(image.get('Year')) // get year of image
+  // Get mutliband images of fire severity
+  var dnbr_IC_spec = dnbr_IC.filterMetadata('Year', 'less_than', year.add(1)) // Filter dnbr_IC by the year and convert to multiband image
+  var dnbr_I_spec = dnbr_IC_spec.toBands()
+  var rdnbr_IC_spec = rdnbr_IC.filterMetadata('Year', 'less_than', year.add(1)) // Filter rdnbr_IC by the year and convert to multiband image
+  var rdnbr_I_spec = rdnbr_IC_spec.toBands()
+  // Reduce to most recent severity pixels, fill NA values with 0, and clip to Great Basin
+  var dnbrRecSev = dnbr_I_spec.reduce(ee.Reducer.lastNonNull()).rename(ee.String('dnbrRecSev')).unmask(0).clip(GBbb.geometry())  // Most severe fire will be the maximum value (dNBR)
+  var rdnbrRecSev = rdnbr_I_spec.reduce(ee.Reducer.lastNonNull()).rename(ee.String('rdnbrRecSev')).unmask(0).clip(GBbb.geometry())  // Most severe fire will be the maximum value (RdNBR)
+  var RecSev_I = ee.Image([dnbrRecSev, rdnbrRecSev])
+  // Add dnbr and rdnb maximum severity bands
+  var image_RecSev = image.addBands(RecSev_I) // Add the new band to the image collection and clip to GB geometry
+  return image_RecSev
+}
+var fire_IC = fire_IC.map(RecSeverity)
+
+
+
+
+
+// Visualize the data
+var mtbs_2017 = fire_IC.filterMetadata('Year', 'equals', 2017).first()
+print(mtbs_2017, '2017 image')
+Map.addLayer(mtbs_2017.select('YearsSinceFire'), {min:0, max:33}, 'YearsSinceFire',false)
+Map.addLayer(mtbs_2017.select('FireCount'), {min:0, max:7}, 'FireCount',false)
+Map.addLayer(mtbs_2017.select('YearsOfMTBS'), {min:0, max:7}, 'Years of MTBS',false)
+Map.addLayer(mtbs_2017.select('FireFreq'), {min:0, max:.15}, 'FireFreq',false)
+Map.addLayer(mtbs_2017.select('rdnbrMaxSev'), {min:0, max:1000}, 'rdnbrMaxSev',false)
+Map.addLayer(mtbs_2017.select('dnbrMaxSev'), {min:0, max:1000}, 'dnbrMaxSev',false)
+Map.addLayer(mtbs_2017.select('rdnbrRecSev'), {min:0, max:1000}, 'rdnbrRecSev',false)
+Map.addLayer(mtbs_2017.select('dnbrRecSev'), {min:0, max:1000}, 'dnbrRecSev',false)
+Map.addLayer(mtbs_2017.select('FireReturnInt'), {min:0, max:33}, 'FireReturnInt',false)

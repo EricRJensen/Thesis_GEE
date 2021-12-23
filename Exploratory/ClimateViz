@@ -1,0 +1,20 @@
+/**** Start of imports. If edited, may not auto-convert in the playground. ****/
+var Prism = ee.ImageCollection("OREGONSTATE/PRISM/AN81d"),
+    Day = ee.ImageCollection("NASA/ORNL/DAYMET_V3");
+/***** End of imports. If edited, may not auto-convert in the playground. *****/
+var startdate = '1981-01-02'
+var enddate = '1981-01-03'
+
+var Prism_assess = Prism.filterDate('1981-01-02','1981-01-03').select('tmax').toBands()
+print(Prism_assess)
+var Day_assess = Day.filterDate('1981-01-03','1981-01-04').select('tmax').toBands()
+print(Day_assess)
+
+var vizParams = {
+  min: 2,
+  max: 12,
+  palette: ['0a28ff','ffffff','ff0404']
+};
+
+Map.addLayer(Prism_assess, vizParams, 'Prism')
+Map.addLayer(Day_assess, vizParams, 'Daymet')

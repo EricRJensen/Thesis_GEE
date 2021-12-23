@@ -1,0 +1,167 @@
+/**** Start of imports. If edited, may not auto-convert in the playground. ****/
+var SR17 = ee.Image("users/ericjensen41_default/Thesis/Outputs/SR_mosaic_2017"),
+    SR94 = ee.Image("users/ericjensen41_default/Thesis/Outputs/SR_mosaic_1994"),
+    GB = ee.FeatureCollection("users/ericjensen41_default/Thesis/Project_Boundaries/GBbounds"),
+    SR95 = ee.Image("users/ericjensen41_default/Thesis/Outputs/SR_mosaic_1995"),
+    SR96 = ee.Image("users/ericjensen41_default/Thesis/Outputs/SR_mosaic_1996"),
+    SR15 = ee.Image("users/ericjensen41_default/Thesis/Outputs/SR_mosaic_2015"),
+    SR16 = ee.Image("users/ericjensen41_default/Thesis/Outputs/SR_mosaic_2016"),
+    Plots = ee.FeatureCollection("users/ericjensen41_default/Thesis/Plots/Allplots"),
+    States = ee.FeatureCollection("TIGER/2018/States");
+/***** End of imports. If edited, may not auto-convert in the playground. *****/
+
+// Create mean images to enable differencing the images while washing out some of the interannual variability
+var SR_early = ee.ImageCollection([SR94, SR95, SR96]).mean()
+var SR_later = ee.ImageCollection([SR15, SR16, SR17]).mean()
+
+// Create tree masks from RAP data
+var RAP = ee.ImageCollection("projects/rangeland-analysis-platform/vegetation-cover-v2")
+  .select(['TREE', 'AFGC']);
+var RAP95 = RAP.select('TREE').filterMetadata('year', 'equals', 1995).first().clip(GB)
+var RAP16 = RAP.select('TREE').filterMetadata('year', 'equals', 2016).first().clip(GB)
+var RAP17 = RAP.select('TREE').filterMetadata('year', 'equals', 2017).first().clip(GB)
+var tree_mask95 = RAP95.lt(20)
+var tree_mask16 = RAP16.lt(20)
+var tree_mask17 = RAP17.lt(20)
+var SR_early_masked = SR_early.updateMask(tree_mask95)
+var SR_later_masked = SR_later.updateMask(tree_mask16)
+var SR17_masked = SR17.updateMask(tree_mask16)
+  
+// Subset the AIM plots to export 
+var Plots_2017 = Plots.filterMetadata('VisitYear', 'equals', 2017)
+
+// Create differenced image between early and late images
+var SR_differenced = SR_later_masked.subtract(SR_early_masked)
+
+
+
+
+
+// // Export images and 2017 plots
+// Export.image.toDrive({
+//   image: SR_later_masked,
+//   description: 'SR_contemporary',
+//   scale: 30,
+//   maxPixels: 1e13,
+//   fileFormat: 'GeoTIFF'
+//   })
+  
+// Export.image.toDrive({
+//   image: SR_early_masked,
+//   description: 'SR_historical',
+//   scale: 30,
+//   maxPixels: 1e13,
+//   fileFormat: 'GeoTIFF'
+//   })
+
+// Export.image.toDrive({
+//   image: SR17_masked,
+//   description: 'SR17',
+//   scale: 30,
+//   maxPixels: 1e13,
+//   fileFormat: 'GeoTIFF'
+//   })
+  
+// Export.image.toDrive({
+//   image: SR_differenced,
+//   description: 'SR_differenced',
+//   scale: 30,
+//   maxPixels: 1e13,
+//   fileFormat: 'GeoTIFF'
+//   })
+  
+// Export.table.toDrive({
+//   collection: Plots_2017,
+//   description:'AIM_2017',
+//   fileFormat: 'SHP'
+// });
+
+// palettes
+var palettes = require('users/gena/packages:palettes');
+
+var viridis = palettes.matplotlib.viridis[7]
+var diverge = palettes.colorbrewer.PRGn[7]
+var cheatgr = palettes.colorbrewer.OrRd[7]
+
+
+// Basemap specifications
+// Enhanced road network visualization.
+var roadNetwork = [
+  {stylers: [{saturation: -100}]}, {
+    featureType: 'road.highway',
+    elementType: 'geometry.fill',
+    stylers: [{color: '#000000'}, {weight: 0}]
+  },
+  {
+    featureType: 'road.highway',
+    elementType: 'geometry.stroke',
+    stylers: [{color: '#000000'}, {weight: 0}]
+  },
+  {
+    featureType: 'road.arterial',
+    elementType: 'geometry',
+    stylers: [{color: '#000000'}, {weight: 0}]
+  },
+  {
+    featureType: 'road.local',
+    elementType: 'geometry',
+    stylers: [{color: '#000000'}, {weight: 0}]
+  },
+    {
+    // Change road properties.
+    featureType: 'road',
+    elementType: 'geometry',
+    stylers: [{visibility: 'off', color: '#000055'}]
+  },
+  {
+    // Change POI options.
+    featureType: 'poi',
+    elementType: 'all',
+    stylers: [{visibility: 'off'}]
+  },
+  {
+    // Change label properties.
+    elementType: 'labels',
+    stylers: [{visibility: 'off', color: '#000055'}]
+  }
+];
+
+
+// Create an empty image into which to paint the features, cast to byte.
+var empty = ee.Image().byte();
+
+// Paint all the polygon edges with the same number and width, display.
+var st_outline = empty.paint({
+  featureCollection: States,
+  color: 1,
+  width: 1
+});
+
+// Create an empty image into which to paint the features, cast to byte.
+var empty = ee.Image().byte();
+
+// Paint all the polygon edges with the same number and width, display.
+var gb_outline = empty.paint({
+  featureCollection: GB,
+  color: 1,
+  width: 2
+});
+
+var rap_early = RAP.select('AFGC').filterMetadata('year', 'less_than', 1997).filterMetadata('year', 'greater_than', 1993).median().clip(GB)
+var rap_later = RAP.select('AFGC').filterMetadata('year', 'less_than', 2018).filterMetadata('year', 'greater_than', 2014).median().clip(GB)
+
+
+// Visualize the maps
+// Map.addLayer(RAP95, {min:0, max: 30}, 'RAP95', false)
+// Map.addLayer(RAP16, {min:0, max: 30}, 'RAP16', false)
+Map.addLayer(SR_early_masked, {min:0, max: 40, palette: viridis}, 'SR_early',false)
+Map.addLayer(SR_later_masked, {min:0, max: 40, palette: viridis}, 'SR_later')
+Map.addLayer(SR_differenced, {min:-5, max: 5, palette:diverge}, 'SR_diff', false)
+
+Map.setOptions(
+    'roadNetwork', {roadNetwork: roadNetwork});
+Map.addLayer(st_outline, {color: '222222'}, 'States',false)
+Map.addLayer(gb_outline, {color: '222222'}, 'Great Basin',false)
+Map.addLayer(rap_later, {min: 0, max: 60, palette: cheatgr}, 'AFGC 2016',false)
+// Map.addLayer(rap_early, {min: 0, max: 40, palette: viridis}, 'AFGC 1995',false)
+// Map.addLayer(rap_early.subtract(rap_later), {min: -35, max: 35, palette:diverge}, 'AFGC_diff')

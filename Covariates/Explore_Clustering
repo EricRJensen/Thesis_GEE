@@ -1,0 +1,190 @@
+/**** Start of imports. If edited, may not auto-convert in the playground. ****/
+var GBbounds = ee.FeatureCollection("users/ericjensen41_default/Thesis/Project_Boundaries/GBbounds"),
+    AIMplots = ee.FeatureCollection("users/ericjensen41_default/Thesis/Plots/Allplots"),
+    geometry = 
+    /* color: #d63000 */
+    /* shown: false */
+    /* displayProperties: [
+      {
+        "type": "rectangle"
+      }
+    ] */
+    ee.Geometry.Polygon(
+        [[[-118.32006793152172, 41.784214928742365],
+          [-118.32006793152172, 41.04580197820525],
+          [-117.0552669061311, 41.04580197820525],
+          [-117.0552669061311, 41.784214928742365]]], null, false);
+/***** End of imports. If edited, may not auto-convert in the playground. *****/
+// -------------------------------------------------------------------------------------
+// ------------------------- Preprocess Landsat Data -----------------------------------
+// -------------------------------------------------------------------------------------
+
+var l8 = ee.ImageCollection("LANDSAT/LC08/C01/T1_SR"),
+    l5 = ee.ImageCollection("LANDSAT/LT05/C01/T1_SR"),
+    l7 = ee.ImageCollection("LANDSAT/LE07/C01/T1_SR")
+    
+
+// ---------------- CLOUD MASKING --------------------------------
+
+// Function to mask clouds for Landsat 5 and 7
+// Keep only clear and low confidence cloud pixels
+// Mask fill,  water, cloud shadow, snow, and medium and high cloud confidence clouds
+// Link to Document: https://prd-wret.s3-us-west-2.amazonaws.com/assets/palladium/production/atoms/files/LSDS-1370_L4-7_SurfaceReflectance-LEDAPS_ProductGuide-v2.pdf
+var maskL57 = function(image){
+  var fillBitMask = 1
+  var clearBitMask = 1 << 1
+  var waterBitMask = 1 << 2
+  var cloudShadowBitMask = 1 << 3
+  var snowBitMask = 1 << 4
+  var cloudConfBitMask = 1 << 7
+  
+  var ls_bands = ee.List(['B1', 'B2', 'B3', 'B4', 'B5', 'B7'])
+  var pixelqa_name = 'pixel_qa'
+  
+  // Get the pixel QA band
+  var pixelqa = image.select(pixelqa_name) 
+  
+  var mask = pixelqa.bitwiseAnd(fillBitMask).eq(0)
+        .and(pixelqa.bitwiseAnd(clearBitMask).neq(0))
+        .and(pixelqa.bitwiseAnd(waterBitMask).eq(0))
+        .and(pixelqa.bitwiseAnd(cloudShadowBitMask).eq(0))
+        .and(pixelqa.bitwiseAnd(snowBitMask).eq(0))
+        .and(pixelqa.bitwiseAnd(cloudConfBitMask).eq(0))      
+              
+// Return the masked image (excluding the PIXELQA and STQA layers)
+  return image.updateMask(mask).select(ls_bands)  }
+
+// Apply cloud mask function to landsat 5 and 7 image collections 
+var l5_masked = l5.map(maskL57).filterBounds(GBbounds)
+var l7_masked = l7.map(maskL57).filterBounds(GBbounds)
+
+
+// Function to mask clouds for Landsat 8
+// Keep only clear and low confidence cloud pixels and low confidence cirrus pixels
+// Mask fill,  water, cloud shadow, snow, terrain occlusion, medium and high cirrus confidence, and medium and high cloud confidence clouds
+// Link to Document: https://prd-wret.s3-us-west-2.amazonaws.com/assets/palladium/production/atoms/files/LSDS-1368_L8_SurfaceReflectanceCode-LASRC_ProductGuide-v2.pdf
+var maskL8 = function(image){
+  var fillBitMask = 1
+  var clearBitMask = 1 << 1
+  var waterBitMask = 1 << 2
+  var cloudShadowBitMask = 1 << 3
+  var snowBitMask = 1 << 4
+  var cloudConfBitMask = 1 << 7
+  var cirrusConfBitMask = 1 << 9
+  var occlusionBitMask = 1 << 10
+  
+  var ls_bands = ee.List(['B2', 'B3', 'B4', 'B5', 'B6', 'B7'])
+  var pixelqa_name = 'pixel_qa'
+  
+  // Get the pixel QA band
+  var pixelqa = image.select(pixelqa_name)
+  
+  var mask = pixelqa.bitwiseAnd(fillBitMask).eq(0)
+        .and(pixelqa.bitwiseAnd(clearBitMask).neq(0))
+        .and(pixelqa.bitwiseAnd(waterBitMask).eq(0))
+        .and(pixelqa.bitwiseAnd(cloudShadowBitMask).eq(0))
+        .and(pixelqa.bitwiseAnd(snowBitMask).eq(0))
+        .and(pixelqa.bitwiseAnd(cloudConfBitMask).eq(0))
+        .and(pixelqa.bitwiseAnd(cirrusConfBitMask).eq(0))
+        .and(pixelqa.bitwiseAnd(occlusionBitMask).eq(0))     
+              
+// Return the masked image (excluding the PIXELQA and STQA layers)
+  return image.updateMask(mask).select(ls_bands)  }
+
+// Apply cloud mask function to landsat 5 and 7 image collections   
+var l8_masked = l8.map(maskL8).filterBounds(GBbounds)
+
+// --------------- HARMONIZATION BETWEEN OLI BANDS TO TM AND ETM ------------------
+
+// Need to assess whether we need to harmonize of simply match bands
+// Function to match OLI bands to ETM and TM
+// var matchBands = function(image){
+//   return image.select(['B2', 'B3', 'B4', 'B5', 'B6', 'B7'], ['B1', 'B2', 'B3', 'B4', 'B5', 'B7'])  }
+// var l8_matched = l8_masked.map(matchBands)
+
+// Function to harmonize bands to ETM and TM
+// slope and intercept citation: Roy, D.P., Kovalskyy, V., Zhang, H.K., Vermote, E.F., Yan, L., Kumar, S.S, Egorov, A., 2016, Characterization of Landsat-7 to Landsat-8 reflective wavelength and normalized difference vegetation index continuity, Remote Sensing of Environment, 185, 57-70.(http://dx.doi.org/10.1016/j.rse.2015.12.024); Table 2 - reduced major axis (RMA) regression coefficients
+var harmonizationRoy = function(oli) {
+  var slopes = ee.Image.constant([0.9785, 0.9542, 0.9825, 1.0073, 1.0171, 0.9949]);        // create an image of slopes per band for L8 TO L7 regression line - David Roy
+  var itcp = ee.Image.constant([-0.0095, -0.0016, -0.0022, -0.0021, -0.0030, 0.0029]);     // create an image of y-intercepts per band for L8 TO L7 regression line - David Roy
+  var y = oli.select(['B2','B3','B4','B5','B6','B7'],['B1', 'B2', 'B3', 'B4', 'B5', 'B7']) // select OLI bands 2-7 and rename them to match L7 band names
+             .resample('bicubic')                                                          // ...resample the L8 bands using bicubic
+             .subtract(itcp.multiply(10000)).divide(slopes)                                // ...multiply the y-intercept bands by 10000 to match the scale of the L7 bands then apply the line equation - subtract the intercept and divide by the slope
+             .set('system:time_start', oli.get('system:time_start'));                      // ...set the output system:time_start metadata to the input image time_start otherwise it is null
+  return y.toShort();                                                                       // return the image as short to match the type of the other data
+};
+    
+var l8_harmonized = l8_masked.map(harmonizationRoy);
+
+// Merge Landsat 5, 7, and 8 into single Image Collection
+var l578 = l5_masked.merge(l7_masked).merge(l8_harmonized);
+
+// Plot 2017 data
+var l578_2017 = l578.filterDate('2017-04-01', '2018-06-15').mean().clip(geometry)
+print(l578_2017)
+Map.addLayer(l578_2017.select('B4'), {min:1000, max:4000}, 'B4_2017')
+var img = l578_2017
+
+var training = img.sample({
+  region: GBbounds,
+  scale: 30, 
+  numPixels: 1000})
+
+// Instantiate the clusterer and train it.
+// var k50cluster = ee.Clusterer.wekaKMeans(50).train(training)
+var k100cluster = ee.Clusterer.wekaKMeans(100).train(training)
+// var k200cluster = ee.Clusterer.wekaKMeans(200).train(training)
+
+// Cluster the input using the trained clusterer.
+// var kmeans50 = img.cluster(k50cluster).rename('kmeans50').toInt8()
+var kmeans100 = img.cluster(k100cluster).rename('kmeans100').toInt8()
+// var kmeans200 = img.cluster(k200cluster).rename('kmeans200').toInt8()
+// Create image with all of the kmeans bands
+// var img_wkmeans = img.addBands(kmeans50).addBands(kmeans100).addBands(kmeans200)
+
+
+var kmeans_focal = kmeans100.select('kmeans100').reduceNeighborhood({reducer: ee.Reducer.countDistinct(), kernel:ee.Kernel.circle(3)})
+Map.addLayer(kmeans_focal, {min:0, max: 6}, 'kmeans_richness')
+
+// // Create bounding box for GB study area
+// var GBgeom = GBbounds.geometry()
+// var GBfeat = ee.Feature(GBgeom)
+// var GBbox = GBfeat.bounds()
+
+// // Subset AIM data to speed up testing of clustering
+// var AIMsub = AIMplots.filterMetadata('VisitYear', 'equals', 2011)
+// print(AIMsub)
+
+// // Combine two reducers to get total cels and count of cells
+// var reducers = ee.Reducer.count().combine({
+//     reducer2: ee.Reducer.countDistinct(), 
+//     outputPrefix: 'dist',
+//     sharedInputs:true
+// })
+
+// // Run reduce regions with two reducers
+// var rr_Count = kmeans50.reduceRegions({
+//   collection: AIMsub,
+//   reducer: reducers,
+//   scale: 30
+// })
+
+
+// // Normalize the proportion of unique classes by the total number of cells
+// var countProp = function(feature){
+//   return feature.set({CountProp: ee.Number(feature.get('distcount')).divide(feature.get('count'))})}
+
+// // Map the area getting function over the FeatureCollection.
+// var propAdded = rr_Count.map(countProp);
+// print(propAdded)
+
+
+// Map the clustered data
+// Map.addLayer(GBbox, {}, 'gbbox')
+// Map.addLayer(kmeans50.randomVisualizer(), {min:0, max:50}, 'kmeans50')
+Map.addLayer(kmeans100.randomVisualizer(), {min:0, max:100}, 'kmeans100')
+// Map.addLayer(kmeans200, {min:0, max:200}, 'kmeans200',false)
+// Map.addLayer(AIMsub, {}, 'AIMsub')
+
+
+

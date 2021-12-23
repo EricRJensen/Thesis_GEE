@@ -1,0 +1,289 @@
+/**** Start of imports. If edited, may not auto-convert in the playground. ****/
+var Daymet = ee.ImageCollection("NASA/ORNL/DAYMET_V3"),
+    GBbounds = ee.FeatureCollection("users/ericjensen41_default/Thesis/Project_Boundaries/LIIIGBBoundary"),
+    AIMplots = ee.FeatureCollection("users/ericjensen41_default/Thesis/Plots/AIM_all_new"),
+    GBbb = ee.FeatureCollection("users/ericjensen41_default/Thesis/Project_Boundaries/GB_BoundingBox");
+/***** End of imports. If edited, may not auto-convert in the playground. *****/
+// Variables of interest:
+// Link to the document: https://www.fs.fed.us/rm/pubs/rmrs_gtr165.pdf
+// Annual Dryness index: dd5/map or sqrt(dd5)/map (once named ami annual moisture index)
+// Summer Dryness index: gsdd5/gsp or sqrt(gsdd5)/gsp (once named smi, summer moisture index)
+// Degree-days >5 degrees C accumulating within the frost-free period
+// Frost free period: Length of the frost-free period (days)
+// Growing season precip: April to September
+// Mean annual precip: in mm
+// Spring temperature: April-May
+// Summer temperature: July-Aug
+// Summer precip: July-Augsut
+// Spring precip: April-May
+// Winter preciptiation Nov-Feb
+// mmax_tenths: Mean maximum temperature in the warmest month
+// Julian date of the last freezing date of spring
+
+// Others
+// Spring 3 year precipiation maximum
+
+
+GBbb = GBbb.first()
+
+// Buffer function to apply to plots
+var buffer100 = function(f){
+  return f.buffer(100) }
+
+var AIMplots = AIMplots.map(buffer100)
+
+print(AIMplots.filterMetadata('VisitYear', 'equals', 2014))
+Map.addLayer(AIMplots.filterMetadata('VisitYear', 'equals', 2014), {},'2014AIM')
+
+var vizParams = {
+  min: 0,
+  max: 20,
+  palette: ['0a28ff','ffffff','ff0404']
+};
+
+Map.addLayer(GBbounds, {}, 'GBbounds')
+
+// Add a mean temperature band
+var calc_tmean = function(img){
+      var tmean = img.expression(
+        '(tmax + tmin) / 2', {
+          'tmax': img.select('tmax'),
+          'tmin': img.select('tmin')}).rename('tmean')
+      var imgSmean = img.addBands(tmean)
+      return(imgSmean)
+}
+
+var Daymet = Daymet.map(calc_tmean)
+
+// Add a binary band for frost free pixels for each date
+//  1 = frost-free, 0 = fros
+var calc_frostfree = function(img){
+  var frostfree = img.select('tmin').gte(0).rename('frostfree')
+  var img_wFF = img.addBands(frostfree)
+  return(img_wFF)
+}
+
+var Daymet = Daymet.map(calc_frostfree)
+
+// Calculate growing degree days (dd5)
+// Need to assess what happens when I sum across "masked" values—hopefully it just ignores
+var calc_dd5 = function(img){
+  var dd_unmasked = img.select('tmean').subtract(5)
+  var dd_mask = dd_unmasked.gte(0)
+  var dd_masked = dd_unmasked.updateMask(dd_mask).rename('dd5')
+  var img_wdd5 = img.addBands(dd_masked)
+  return img_wdd5
+}
+
+var Daymet = Daymet.map(calc_dd5)
+
+var startDate = '2007-01-01'
+var endDate = '2020-01-01'
+var DMfilt = Daymet.filterDate(startDate,endDate)
+print(DMfilt)
+
+var dateList = ee.List(['2008-01-01', '2009-01-01', '2010-01-01', '2011-01-01', '2012-01-01', '2013-01-01','2014-01-01', '2015-01-01', '2016-01-01', '2017-01-01', '2018-01-01', '2019-01-01', '2020-01-01'])
+// var yearList = ee.List(['2011','2012','2013','2014','2015','2016','2017','2018'])
+// var sprDates = ee.List(['04-01', '06-01'])
+// var sumDates = ee.List(['07-01', '09-01'])
+// var winDates = ee.List(['11-01', '03-01'])
+// var gsDates = ee.List(['04-01', '09-30'])
+
+//  Annual temperature
+var ann2008T = DMfilt.filterDate(dateList.get(0),dateList.get(1)).select('tmean').toBands().reduce(ee.Reducer.mean()).set('year', ee.Number(2008)).rename('annT')
+var ann2009T = DMfilt.filterDate(dateList.get(1),dateList.get(2)).select('tmean').toBands().reduce(ee.Reducer.mean()).set('year', ee.Number(2009)).rename('annT')
+var ann2010T = DMfilt.filterDate(dateList.get(2),dateList.get(3)).select('tmean').toBands().reduce(ee.Reducer.mean()).set('year', ee.Number(2010)).rename('annT')
+var ann2011T = DMfilt.filterDate(dateList.get(3),dateList.get(4)).select('tmean').toBands().reduce(ee.Reducer.mean()).set('year', ee.Number(2011)).rename('annT')
+var ann2012T = DMfilt.filterDate(dateList.get(4),dateList.get(5)).select('tmean').toBands().reduce(ee.Reducer.mean()).set('year', ee.Number(2012)).rename('annT')
+var ann2013T = DMfilt.filterDate(dateList.get(5),dateList.get(6)).select('tmean').toBands().reduce(ee.Reducer.mean()).set('year', ee.Number(2013)).rename('annT')
+var ann2014T = DMfilt.filterDate(dateList.get(6),dateList.get(7)).select('tmean').toBands().reduce(ee.Reducer.mean()).set('year', ee.Number(2014)).rename('annT')
+var ann2015T = DMfilt.filterDate(dateList.get(7),dateList.get(8)).select('tmean').toBands().reduce(ee.Reducer.mean()).set('year', ee.Number(2015)).rename('annT')
+var ann2016T = DMfilt.filterDate(dateList.get(8),dateList.get(9)).select('tmean').toBands().reduce(ee.Reducer.mean()).set('year', ee.Number(2016)).rename('annT')
+var ann2017T = DMfilt.filterDate(dateList.get(9),dateList.get(10)).select('tmean').toBands().reduce(ee.Reducer.mean()).set('year', ee.Number(2017)).rename('annT')
+var ann2018T = DMfilt.filterDate(dateList.get(10),dateList.get(11)).select('tmean').toBands().reduce(ee.Reducer.mean()).set('year', ee.Number(2018)).rename('annT')
+var ann2019T = DMfilt.filterDate(dateList.get(11),dateList.get(12)).select('tmean').toBands().reduce(ee.Reducer.mean()).set('year', ee.Number(2019)).rename('annT')
+
+// print(ann2017T)
+Map.addLayer(ann2011T, vizParams, '2011temp')
+
+// Spring temperature
+var spr2008T = DMfilt.filterDate('2008-04-01','2008-06-01').select('tmean').toBands().reduce(ee.Reducer.mean()).set('year', ee.Number(2008)).rename('sprT')
+var spr2009T = DMfilt.filterDate('2009-04-01','2009-06-01').select('tmean').toBands().reduce(ee.Reducer.mean()).set('year', ee.Number(2009)).rename('sprT')
+var spr2010T = DMfilt.filterDate('2010-04-01','2010-06-01').select('tmean').toBands().reduce(ee.Reducer.mean()).set('year', ee.Number(2010)).rename('sprT')
+var spr2011T = DMfilt.filterDate('2011-04-01','2011-06-01').select('tmean').toBands().reduce(ee.Reducer.mean()).set('year', ee.Number(2011)).rename('sprT')
+var spr2012T = DMfilt.filterDate('2012-04-01','2012-06-01').select('tmean').toBands().reduce(ee.Reducer.mean()).set('year', ee.Number(2012)).rename('sprT')
+var spr2013T = DMfilt.filterDate('2013-04-01','2013-06-01').select('tmean').toBands().reduce(ee.Reducer.mean()).set('year', ee.Number(2013)).rename('sprT')
+var spr2014T = DMfilt.filterDate('2014-04-01','2014-06-01').select('tmean').toBands().reduce(ee.Reducer.mean()).set('year', ee.Number(2014)).rename('sprT')
+var spr2015T = DMfilt.filterDate('2015-04-01','2015-06-01').select('tmean').toBands().reduce(ee.Reducer.mean()).set('year', ee.Number(2015)).rename('sprT')
+var spr2016T = DMfilt.filterDate('2016-04-01','2016-06-01').select('tmean').toBands().reduce(ee.Reducer.mean()).set('year', ee.Number(2016)).rename('sprT')
+var spr2017T = DMfilt.filterDate('2017-04-01','2017-06-01').select('tmean').toBands().reduce(ee.Reducer.mean()).set('year', ee.Number(2017)).rename('sprT')
+var spr2018T = DMfilt.filterDate('2018-04-01','2018-06-01').select('tmean').toBands().reduce(ee.Reducer.mean()).set('year', ee.Number(2018)).rename('sprT')
+var spr2019T = DMfilt.filterDate('2019-04-01','2019-06-01').select('tmean').toBands().reduce(ee.Reducer.mean()).set('year', ee.Number(2019)).rename('sprT')
+// print(spr2017T)
+
+// Summer temperature
+var sum2008T = DMfilt.filterDate('2008-07-01','2008-09-01').select('tmean').toBands().reduce(ee.Reducer.mean()).set('year', ee.Number(2008)).rename('sumT')
+var sum2009T = DMfilt.filterDate('2009-07-01','2009-09-01').select('tmean').toBands().reduce(ee.Reducer.mean()).set('year', ee.Number(2009)).rename('sumT')
+var sum2010T = DMfilt.filterDate('2010-07-01','2010-09-01').select('tmean').toBands().reduce(ee.Reducer.mean()).set('year', ee.Number(2010)).rename('sumT')
+var sum2011T = DMfilt.filterDate('2011-07-01','2011-09-01').select('tmean').toBands().reduce(ee.Reducer.mean()).set('year', ee.Number(2011)).rename('sumT')
+var sum2012T = DMfilt.filterDate('2012-07-01','2012-09-01').select('tmean').toBands().reduce(ee.Reducer.mean()).set('year', ee.Number(2012)).rename('sumT')
+var sum2013T = DMfilt.filterDate('2013-07-01','2013-09-01').select('tmean').toBands().reduce(ee.Reducer.mean()).set('year', ee.Number(2013)).rename('sumT')
+var sum2014T = DMfilt.filterDate('2014-07-01','2014-09-01').select('tmean').toBands().reduce(ee.Reducer.mean()).set('year', ee.Number(2014)).rename('sumT')
+var sum2015T = DMfilt.filterDate('2015-07-01','2015-09-01').select('tmean').toBands().reduce(ee.Reducer.mean()).set('year', ee.Number(2015)).rename('sumT')
+var sum2016T = DMfilt.filterDate('2016-07-01','2016-09-01').select('tmean').toBands().reduce(ee.Reducer.mean()).set('year', ee.Number(2016)).rename('sumT')
+var sum2017T = DMfilt.filterDate('2017-07-01','2017-09-01').select('tmean').toBands().reduce(ee.Reducer.mean()).set('year', ee.Number(2017)).rename('sumT')
+var sum2018T = DMfilt.filterDate('2018-07-01','2018-09-01').select('tmean').toBands().reduce(ee.Reducer.mean()).set('year', ee.Number(2018)).rename('sumT')
+var sum2019T = DMfilt.filterDate('2019-07-01','2019-09-01').select('tmean').toBands().reduce(ee.Reducer.mean()).set('year', ee.Number(2019)).rename('sumT')
+// print(sum2017T)
+
+// Annual precipitation
+var ann2008P = DMfilt.filterDate(dateList.get(0),dateList.get(1)).select('prcp').toBands().reduce(ee.Reducer.sum()).set('year', ee.Number(2008)).rename('annP')
+var ann2009P = DMfilt.filterDate(dateList.get(1),dateList.get(2)).select('prcp').toBands().reduce(ee.Reducer.sum()).set('year', ee.Number(2009)).rename('annP')
+var ann2010P = DMfilt.filterDate(dateList.get(2),dateList.get(3)).select('prcp').toBands().reduce(ee.Reducer.sum()).set('year', ee.Number(2010)).rename('annP')
+var ann2011P = DMfilt.filterDate(dateList.get(3),dateList.get(4)).select('prcp').toBands().reduce(ee.Reducer.sum()).set('year', ee.Number(2011)).rename('annP')
+var ann2012P = DMfilt.filterDate(dateList.get(4),dateList.get(5)).select('prcp').toBands().reduce(ee.Reducer.sum()).set('year', ee.Number(2012)).rename('annP')
+var ann2013P = DMfilt.filterDate(dateList.get(5),dateList.get(6)).select('prcp').toBands().reduce(ee.Reducer.sum()).set('year', ee.Number(2013)).rename('annP')
+var ann2014P = DMfilt.filterDate(dateList.get(6),dateList.get(7)).select('prcp').toBands().reduce(ee.Reducer.sum()).set('year', ee.Number(2014)).rename('annP')
+var ann2015P = DMfilt.filterDate(dateList.get(7),dateList.get(8)).select('prcp').toBands().reduce(ee.Reducer.sum()).set('year', ee.Number(2015)).rename('annP')
+var ann2016P = DMfilt.filterDate(dateList.get(8),dateList.get(9)).select('prcp').toBands().reduce(ee.Reducer.sum()).set('year', ee.Number(2016)).rename('annP')
+var ann2017P = DMfilt.filterDate(dateList.get(9),dateList.get(10)).select('prcp').toBands().reduce(ee.Reducer.sum()).set('year', ee.Number(2017)).rename('annP')
+var ann2018P = DMfilt.filterDate(dateList.get(10),dateList.get(11)).select('prcp').toBands().reduce(ee.Reducer.sum()).set('year', ee.Number(2018)).rename('annP')
+var ann2019P = DMfilt.filterDate(dateList.get(11),dateList.get(12)).select('prcp').toBands().reduce(ee.Reducer.sum()).set('year', ee.Number(2019)).rename('annP')
+// print(ann2017P)
+
+// Winter precipitation
+var win2008P = DMfilt.filterDate('2007-11-01','2008-02-01').select('prcp').toBands().reduce(ee.Reducer.sum()).set('year', ee.Number(2008)).rename('winP')
+var win2009P = DMfilt.filterDate('2008-11-01','2009-02-01').select('prcp').toBands().reduce(ee.Reducer.sum()).set('year', ee.Number(2009)).rename('winP')
+var win2010P = DMfilt.filterDate('2009-11-01','2010-02-01').select('prcp').toBands().reduce(ee.Reducer.sum()).set('year', ee.Number(2010)).rename('winP')
+var win2011P = DMfilt.filterDate('2010-11-01','2011-02-01').select('prcp').toBands().reduce(ee.Reducer.sum()).set('year', ee.Number(2011)).rename('winP')
+var win2012P = DMfilt.filterDate('2011-11-01','2012-02-01').select('prcp').toBands().reduce(ee.Reducer.sum()).set('year', ee.Number(2012)).rename('winP')
+var win2013P = DMfilt.filterDate('2012-11-01','2013-02-01').select('prcp').toBands().reduce(ee.Reducer.sum()).set('year', ee.Number(2013)).rename('winP')
+var win2014P = DMfilt.filterDate('2013-11-01','2014-02-01').select('prcp').toBands().reduce(ee.Reducer.sum()).set('year', ee.Number(2014)).rename('winP')
+var win2015P = DMfilt.filterDate('2014-11-01','2015-02-01').select('prcp').toBands().reduce(ee.Reducer.sum()).set('year', ee.Number(2015)).rename('winP')
+var win2016P = DMfilt.filterDate('2015-11-01','2016-02-01').select('prcp').toBands().reduce(ee.Reducer.sum()).set('year', ee.Number(2016)).rename('winP')
+var win2017P = DMfilt.filterDate('2016-11-01','2017-02-01').select('prcp').toBands().reduce(ee.Reducer.sum()).set('year', ee.Number(2017)).rename('winP')
+var win2018P = DMfilt.filterDate('2017-11-01','2018-02-01').select('prcp').toBands().reduce(ee.Reducer.sum()).set('year', ee.Number(2018)).rename('winP')
+var win2019P = DMfilt.filterDate('2018-11-01','2019-02-01').select('prcp').toBands().reduce(ee.Reducer.sum()).set('year', ee.Number(2019)).rename('winP')
+// print(win2017P)
+
+// Spring precipitation
+var spr2008P = DMfilt.filterDate('2008-04-01','2008-06-01').select('prcp').toBands().reduce(ee.Reducer.sum()).set('year', ee.Number(2008)).rename('sprP')
+var spr2009P = DMfilt.filterDate('2009-04-01','2009-06-01').select('prcp').toBands().reduce(ee.Reducer.sum()).set('year', ee.Number(2009)).rename('sprP')
+var spr2010P = DMfilt.filterDate('2010-04-01','2010-06-01').select('prcp').toBands().reduce(ee.Reducer.sum()).set('year', ee.Number(2010)).rename('sprP')
+var spr2011P = DMfilt.filterDate('2011-04-01','2011-06-01').select('prcp').toBands().reduce(ee.Reducer.sum()).set('year', ee.Number(2011)).rename('sprP')
+var spr2012P = DMfilt.filterDate('2012-04-01','2012-06-01').select('prcp').toBands().reduce(ee.Reducer.sum()).set('year', ee.Number(2012)).rename('sprP')
+var spr2013P = DMfilt.filterDate('2013-04-01','2013-06-01').select('prcp').toBands().reduce(ee.Reducer.sum()).set('year', ee.Number(2013)).rename('sprP')
+var spr2014P = DMfilt.filterDate('2014-04-01','2014-06-01').select('prcp').toBands().reduce(ee.Reducer.sum()).set('year', ee.Number(2014)).rename('sprP')
+var spr2015P = DMfilt.filterDate('2015-04-01','2015-06-01').select('prcp').toBands().reduce(ee.Reducer.sum()).set('year', ee.Number(2015)).rename('sprP')
+var spr2016P = DMfilt.filterDate('2016-04-01','2016-06-01').select('prcp').toBands().reduce(ee.Reducer.sum()).set('year', ee.Number(2016)).rename('sprP')
+var spr2017P = DMfilt.filterDate('2017-04-01','2017-06-01').select('prcp').toBands().reduce(ee.Reducer.sum()).set('year', ee.Number(2017)).rename('sprP')
+var spr2018P = DMfilt.filterDate('2018-04-01','2018-06-01').select('prcp').toBands().reduce(ee.Reducer.sum()).set('year', ee.Number(2018)).rename('sprP')
+var spr2019P = DMfilt.filterDate('2019-04-01','2019-06-01').select('prcp').toBands().reduce(ee.Reducer.sum()).set('year', ee.Number(2019)).rename('sprP')
+// print(spr2017P)
+
+// Summer precipitation
+var sum2008P = DMfilt.filterDate('2008-07-01','2008-09-01').select('prcp').toBands().reduce(ee.Reducer.sum()).set('year', ee.Number(2008)).rename('sumP')
+var sum2009P = DMfilt.filterDate('2009-07-01','2009-09-01').select('prcp').toBands().reduce(ee.Reducer.sum()).set('year', ee.Number(2009)).rename('sumP')
+var sum2010P = DMfilt.filterDate('2010-07-01','2010-09-01').select('prcp').toBands().reduce(ee.Reducer.sum()).set('year', ee.Number(2010)).rename('sumP')
+var sum2011P = DMfilt.filterDate('2011-07-01','2011-09-01').select('prcp').toBands().reduce(ee.Reducer.sum()).set('year', ee.Number(2011)).rename('sumP')
+var sum2012P = DMfilt.filterDate('2012-07-01','2012-09-01').select('prcp').toBands().reduce(ee.Reducer.sum()).set('year', ee.Number(2012)).rename('sumP')
+var sum2013P = DMfilt.filterDate('2013-07-01','2013-09-01').select('prcp').toBands().reduce(ee.Reducer.sum()).set('year', ee.Number(2013)).rename('sumP')
+var sum2014P = DMfilt.filterDate('2014-07-01','2014-09-01').select('prcp').toBands().reduce(ee.Reducer.sum()).set('year', ee.Number(2014)).rename('sumP')
+var sum2015P = DMfilt.filterDate('2015-07-01','2015-09-01').select('prcp').toBands().reduce(ee.Reducer.sum()).set('year', ee.Number(2015)).rename('sumP')
+var sum2016P = DMfilt.filterDate('2016-07-01','2016-09-01').select('prcp').toBands().reduce(ee.Reducer.sum()).set('year', ee.Number(2016)).rename('sumP')
+var sum2017P = DMfilt.filterDate('2017-07-01','2017-09-01').select('prcp').toBands().reduce(ee.Reducer.sum()).set('year', ee.Number(2017)).rename('sumP')
+var sum2018P = DMfilt.filterDate('2018-07-01','2018-09-01').select('prcp').toBands().reduce(ee.Reducer.sum()).set('year', ee.Number(2018)).rename('sumP')
+var sum2019P = DMfilt.filterDate('2019-07-01','2019-09-01').select('prcp').toBands().reduce(ee.Reducer.sum()).set('year', ee.Number(2019)).rename('sumP')
+// print(sum2017P)
+
+// Growing season precipitation
+var gs2008P = DMfilt.filterDate('2008-04-01','2008-10-01').select('prcp').toBands().reduce(ee.Reducer.sum()).set('year', ee.Number(2008)).rename('gsP')
+var gs2009P = DMfilt.filterDate('2009-04-01','2009-10-01').select('prcp').toBands().reduce(ee.Reducer.sum()).set('year', ee.Number(2009)).rename('gsP')
+var gs2010P = DMfilt.filterDate('2010-04-01','2010-10-01').select('prcp').toBands().reduce(ee.Reducer.sum()).set('year', ee.Number(2010)).rename('gsP')
+var gs2011P = DMfilt.filterDate('2011-04-01','2011-10-01').select('prcp').toBands().reduce(ee.Reducer.sum()).set('year', ee.Number(2011)).rename('gsP')
+var gs2012P = DMfilt.filterDate('2012-04-01','2012-10-01').select('prcp').toBands().reduce(ee.Reducer.sum()).set('year', ee.Number(2012)).rename('gsP')
+var gs2013P = DMfilt.filterDate('2013-04-01','2013-10-01').select('prcp').toBands().reduce(ee.Reducer.sum()).set('year', ee.Number(2013)).rename('gsP')
+var gs2014P = DMfilt.filterDate('2014-04-01','2014-10-01').select('prcp').toBands().reduce(ee.Reducer.sum()).set('year', ee.Number(2014)).rename('gsP')
+var gs2015P = DMfilt.filterDate('2015-04-01','2015-10-01').select('prcp').toBands().reduce(ee.Reducer.sum()).set('year', ee.Number(2015)).rename('gsP')
+var gs2016P = DMfilt.filterDate('2016-04-01','2016-10-01').select('prcp').toBands().reduce(ee.Reducer.sum()).set('year', ee.Number(2016)).rename('gsP')
+var gs2017P = DMfilt.filterDate('2017-04-01','2017-10-01').select('prcp').toBands().reduce(ee.Reducer.sum()).set('year', ee.Number(2017)).rename('gsP')
+var gs2018P = DMfilt.filterDate('2018-04-01','2018-10-01').select('prcp').toBands().reduce(ee.Reducer.sum()).set('year', ee.Number(2018)).rename('gsP')
+var gs2019P = DMfilt.filterDate('2019-04-01','2019-10-01').select('prcp').toBands().reduce(ee.Reducer.sum()).set('year', ee.Number(2019)).rename('gsP')
+// print(gs2017P)
+
+// Create annual image ImageCollections
+var cli_2008 = ee.Image(ann2008T.addBands(spr2008T).addBands(sum2008T).addBands(ann2008P).addBands(win2008P).addBands(spr2008P).addBands(sum2008P).addBands(gs2008P))
+var cli_2009 = ee.Image(ann2009T.addBands(spr2009T).addBands(sum2009T).addBands(ann2009P).addBands(win2009P).addBands(spr2009P).addBands(sum2009P).addBands(gs2009P))
+var cli_2010 = ee.Image(ann2010T.addBands(spr2010T).addBands(sum2010T).addBands(ann2010P).addBands(win2010P).addBands(spr2010P).addBands(sum2010P).addBands(gs2010P))
+var cli_2011 = ee.Image(ann2011T.addBands(spr2011T).addBands(sum2011T).addBands(ann2011P).addBands(win2011P).addBands(spr2011P).addBands(sum2011P).addBands(gs2011P))
+var cli_2012 = ee.Image(ann2012T.addBands(spr2012T).addBands(sum2012T).addBands(ann2012P).addBands(win2012P).addBands(spr2012P).addBands(sum2012P).addBands(gs2012P))
+var cli_2013 = ee.Image(ann2013T.addBands(spr2013T).addBands(sum2013T).addBands(ann2013P).addBands(win2013P).addBands(spr2013P).addBands(sum2013P).addBands(gs2013P))
+var cli_2014 = ee.Image(ann2014T.addBands(spr2014T).addBands(sum2014T).addBands(ann2014P).addBands(win2014P).addBands(spr2014P).addBands(sum2014P).addBands(gs2014P))
+var cli_2015 = ee.Image(ann2015T.addBands(spr2015T).addBands(sum2015T).addBands(ann2015P).addBands(win2015P).addBands(spr2015P).addBands(sum2015P).addBands(gs2015P))
+var cli_2016 = ee.Image(ann2016T.addBands(spr2016T).addBands(sum2016T).addBands(ann2016P).addBands(win2016P).addBands(spr2016P).addBands(sum2016P).addBands(gs2016P))
+var cli_2017 = ee.Image(ann2017T.addBands(spr2017T).addBands(sum2017T).addBands(ann2017P).addBands(win2017P).addBands(spr2017P).addBands(sum2017P).addBands(gs2017P))
+var cli_2018 = ee.Image(ann2018T.addBands(spr2018T).addBands(sum2018T).addBands(ann2018P).addBands(win2018P).addBands(spr2018P).addBands(sum2018P).addBands(gs2018P))
+var cli_2019 = ee.Image(ann2019T.addBands(spr2019T).addBands(sum2019T).addBands(ann2019P).addBands(win2019P).addBands(spr2019P).addBands(sum2019P).addBands(gs2019P))
+
+// Add images into multipart image collection
+var cli_list = ee.List([cli_2008,cli_2009, cli_2010, cli_2011, cli_2012, cli_2013,cli_2014,cli_2015,cli_2016,cli_2017,cli_2018,cli_2019])
+var cli_IC = ee.ImageCollection(cli_list)
+
+// Calculate reduce regions for image collection by year
+// AIM plots by year
+var AIM2008 = AIMplots.filterMetadata('VisitYear', 'equals', 2008)
+var AIM2009 = AIMplots.filterMetadata('VisitYear', 'equals', 2009)
+var AIM2010 = AIMplots.filterMetadata('VisitYear', 'equals', 2010)
+var AIM2011 = AIMplots.filterMetadata('VisitYear', 'equals', 2011)
+var AIM2012 = AIMplots.filterMetadata('VisitYear', 'equals', 2012)
+var AIM2013 = AIMplots.filterMetadata('VisitYear', 'equals', 2013)
+var AIM2014 = AIMplots.filterMetadata('VisitYear', 'equals', 2014)
+var AIM2015 = AIMplots.filterMetadata('VisitYear', 'equals', 2015)
+var AIM2016 = AIMplots.filterMetadata('VisitYear', 'equals', 2016)
+var AIM2017 = AIMplots.filterMetadata('VisitYear', 'equals', 2017)
+var AIM2018 = AIMplots.filterMetadata('VisitYear', 'equals', 2018)
+var AIM2019 = AIMplots.filterMetadata('VisitYear', 'equals', 2019)
+
+// Reduce regions by year
+var RR_2008 = cli_2008.reduceRegions({collection: AIM2008, reducer: ee.Reducer.mean(), scale: 30})
+var RR_2009 = cli_2009.reduceRegions({collection: AIM2009, reducer: ee.Reducer.mean(), scale: 30})
+var RR_2010 = cli_2010.reduceRegions({collection: AIM2010, reducer: ee.Reducer.mean(), scale: 30})
+var RR_2011 = cli_2011.reduceRegions({collection: AIM2011, reducer: ee.Reducer.mean(), scale: 30})
+var RR_2012 = cli_2012.reduceRegions({collection: AIM2012, reducer: ee.Reducer.mean(), scale: 30})
+var RR_2013 = cli_2013.reduceRegions({collection: AIM2013, reducer: ee.Reducer.mean(), scale: 30})
+var RR_2014 = cli_2014.reduceRegions({collection: AIM2014, reducer: ee.Reducer.mean(), scale: 30})
+var RR_2015 = cli_2015.reduceRegions({collection: AIM2015, reducer: ee.Reducer.mean(), scale: 30})
+var RR_2016 = cli_2016.reduceRegions({collection: AIM2016, reducer: ee.Reducer.mean(), scale: 30})
+var RR_2017 = cli_2017.reduceRegions({collection: AIM2017, reducer: ee.Reducer.mean(), scale: 30})
+var RR_2018 = cli_2018.reduceRegions({collection: AIM2018, reducer: ee.Reducer.mean(), scale: 30})
+var RR_2019 = cli_2019.reduceRegions({collection: AIM2019, reducer: ee.Reducer.mean(), scale: 30})
+
+// // Merge zonal feature collections
+// var RR_cli = RR_2008.merge(RR_2009).merge(RR_2010).merge(RR_2011).merge(RR_2012).merge(RR_2013).merge(RR_2014).merge(RR_2015).merge(RR_2016).merge(RR_2017).merge(RR_2018).merge(RR_2019)
+
+// // Export climate zonal statistics
+// Export.table.toDrive({
+//   collection: RR_cli,
+//   description:'Climate_covariates',
+//   fileFormat: 'CSV'
+// });
+
+
+
+// Export 2017 annual temperature image
+// Reproject and increase resolution to 30 meters for calculating focal grid
+var new_crs = ee.Projection('EPSG:4326')
+var img_30m = ann2017T.reproject(new_crs, null, 30)
+
+var img_focal = img_30m.focal_mean(100, 'circle', 'meters').clip(GBbounds)
+
+// Export image to Drive
+Export.image.toDrive({
+    image: img_focal,
+    description: 'annT_img',
+    fileNamePrefix: 'annT_img',
+    fileFormat: 'GeoTiff',
+    scale: 30,
+    maxPixels: 1e13,
+    crs: 'EPSG:4326',
+    region: GBbb.geometry()}) 

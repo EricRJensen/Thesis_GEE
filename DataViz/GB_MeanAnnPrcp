@@ -1,0 +1,16 @@
+/**** Start of imports. If edited, may not auto-convert in the playground. ****/
+var image = ee.Image("users/ericjensen41_default/Thesis/Covar_climate/climate_map"),
+    table = ee.FeatureCollection("users/ericjensen41_default/Thesis/Project_Boundaries/LIIIGBBoundary");
+/***** End of imports. If edited, may not auto-convert in the playground. *****/
+var viz = {
+  min: 70.0,
+  max: 550.0,
+  palette: [
+    'FFFFFF', 'CE7E45', 'DF923D', 'F1B555', 'FCD163', '99B718', '74A901',
+    '66A000', '529400', '3E8601', '207401', '056201', '004C00', '023B01',
+    '012E01', '011D01', '011301'
+  ],
+};
+
+Map.addLayer(image.clip(table.geometry()), viz, 'MAP')
+Map.addLayer(table, {}, 'Bounds',false)

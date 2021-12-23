@@ -1,0 +1,50 @@
+/**** Start of imports. If edited, may not auto-convert in the playground. ****/
+var AnnHerb = ee.Image("users/ericjensen41_default/Thesis/Covariates/AnnHerb_GB_2000_2018"),
+    AIMplots = ee.FeatureCollection("users/ericjensen41_default/Thesis/Plots/AIMplots");
+/***** End of imports. If edited, may not auto-convert in the playground. *****/
+// Buffer function to apply to plots
+var buffer100 = function(f){
+  return f.buffer(100) }
+
+AIMplots = AIMplots.map(buffer100)
+
+// Cast MTBS raster image bands to images in image collection
+var H = AnnHerb
+
+//Function to generate an image where each pixel that burned  in each yearly band has the value of the year, all other pixels are masked
+var GetCheatgrass = function(img){
+  var image = ee.Image(img)
+  var yearStr = ee.String(image.bandNames().get(0)).slice(4,8)  // select year substring of bandname
+  var yearNum = ee.Number.parse(yearStr) // convert year substring to a number
+  var AIMYr = ee.FeatureCollection(AIMplots.filterMetadata('VisitYear', 'equals', yearNum))
+  var rrAIM = image.reduceRegions({
+                    collection: AIMYr,
+                    reducer: ee.Reducer.median(),
+                    scale:30})
+  return(rrAIM) }
+
+var CG08 = GetCheatgrass(H.select(8))
+var CG09 = GetCheatgrass(H.select(9))
+var CG10 = GetCheatgrass(H.select(10))
+var CG11 = GetCheatgrass(H.select(11))
+var CG12 = GetCheatgrass(H.select(12))
+var CG13 = GetCheatgrass(H.select(13))
+var CG14 = GetCheatgrass(H.select(14))
+var CG15 = GetCheatgrass(H.select(15))
+var CG16 = GetCheatgrass(H.select(16))
+var CG17 = GetCheatgrass(H.select(17))
+var CG18 = GetCheatgrass(H.select(18))
+
+
+var CG_export = CG08.merge(CG09).merge(CG10).merge(CG11).merge(CG12).merge(CG13).merge(CG14).merge(CG15).merge(CG16)
+  .merge(CG17).merge(CG18)
+  
+print(CG_export.size())
+  
+
+Export.table.toDrive({
+  collection: CG_export,
+  description:'Cheatgrass_Predictors',
+  fileFormat: 'CSV'
+});
+

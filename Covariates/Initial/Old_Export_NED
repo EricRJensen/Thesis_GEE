@@ -1,0 +1,26 @@
+/**** Start of imports. If edited, may not auto-convert in the playground. ****/
+var ned = ee.Image("USGS/NED"),
+    GBbounds = ee.FeatureCollection("users/ericjensen41_default/Thesis/Project_Boundaries/LIIIGBBoundary");
+/***** End of imports. If edited, may not auto-convert in the playground. *****/
+var GB_buffer = GBbounds.geometry().simplify(1000).buffer(3000)
+print(GB_buffer, 'GB_buffer')
+var GB_ned = ned.clip(GBbounds.geometry())
+
+print(GB_ned, 'GB_ned')
+
+var nedParams = {
+  bands:['elevation'],
+  min: 0,
+  max: 3000
+};
+
+// Map.addLayer(GB_ned, nedParams, 'gb_ned')
+Map.addLayer(GB_ned, nedParams, 'GB_ned')
+Map.addLayer(GBbounds, {}, 'GBbounds')
+
+// Export to Drive
+Export.image.toDrive({
+  image: GB_ned,
+  description: 'Great Basin ned',
+  maxPixels: 1e13
+});

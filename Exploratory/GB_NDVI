@@ -1,0 +1,115 @@
+/**** Start of imports. If edited, may not auto-convert in the playground. ****/
+var surface8 = ee.ImageCollection("LANDSAT/LC08/C01/T1_SR"),
+    roi = ee.FeatureCollection("users/ericjensen41_default/LIIIGBBoundary"),
+    surface5 = ee.ImageCollection("LANDSAT/LT05/C01/T1_SR");
+/***** End of imports. If edited, may not auto-convert in the playground. *****/
+var image2011 = ee.ImageCollection(surface5).filterBounds(roi).filterDate("2011-04-01", "2011-05-31")
+   .filterMetadata('CLOUD_COVER', 'less_than', 20).median().clip(roi) //or mosaic()
+
+var image2012 = ee.ImageCollection(surface5).filterBounds(roi).filterDate("2012-04-01", "2012-05-31")
+   .filterMetadata('CLOUD_COVER', 'less_than', 20).median().clip(roi) //or mosaic()
+
+var image2013 = ee.ImageCollection(surface8).filterBounds(roi).filterDate("2013-04-01", "2013-05-31")
+   .filterMetadata('CLOUD_COVER', 'less_than', 20).median().clip(roi) //or mosaic()
+    
+var image2014 = ee.ImageCollection(surface8).filterBounds(roi).filterDate("2014-04-01", "2014-05-31")
+   .filterMetadata('CLOUD_COVER', 'less_than', 20).median().clip(roi) //or mosaic()
+    
+var image2015 = ee.ImageCollection(surface8).filterBounds(roi).filterDate("2015-04-01", "2015-05-31")
+   .filterMetadata('CLOUD_COVER', 'less_than', 20).median().clip(roi) //or mosaic()
+    
+var image2016 = ee.ImageCollection(surface8).filterBounds(roi).filterDate("2016-04-01", "2016-05-31")
+   .filterMetadata('CLOUD_COVER', 'less_than', 20).median().clip(roi) //or mosaic()
+    
+var image2017 = ee.ImageCollection(surface8).filterBounds(roi).filterDate("2017-04-01", "2017-05-31")
+   .filterMetadata('CLOUD_COVER', 'less_than', 20).median().clip(roi) //or mosaic()
+    
+var image2018 = ee.ImageCollection(surface8).filterBounds(roi).filterDate("2018-04-01", "2018-05-31")
+   .filterMetadata('CLOUD_COVER', 'less_than', 20).median().clip(roi) //or mosaic()
+    
+print(image2011, 'Greenimage2011')
+print(image2012, 'Greenimage2012')
+print(image2013, 'Greenimage2013')
+print(image2014, 'Greenimage2014')
+print(image2015, 'Greenimage2015')
+print(image2016, 'Greenimage2016')
+print(image2017, 'Greenimage2017')
+print(image2018, 'Greenimage2018')
+
+Map.addLayer(image2013, {}, 'Greenimage2013')
+Map.addLayer(roi,{},'roi')
+
+var ndvi2011 = image2011.normalizedDifference(['B5','B4']).rename('ndvi11')
+var ndvi2012 = image2012.normalizedDifference(['B5','B4']).rename('ndvi12')
+var ndvi2013 = image2013.normalizedDifference(['B5','B4']).rename('ndvi13')
+var ndvi2014 = image2014.normalizedDifference(['B5','B4']).rename('ndvi14')
+var ndvi2015 = image2015.normalizedDifference(['B5','B4']).rename('ndvi15')
+var ndvi2016 = image2016.normalizedDifference(['B5','B4']).rename('ndvi16')
+var ndvi2017 = image2017.normalizedDifference(['B5','B4']).rename('ndvi17')
+var ndvi2018 = image2018.normalizedDifference(['B5','B4']).rename('ndvi18')
+
+Map.addLayer(ndvi2011,{},'ndvi11')
+Map.addLayer(ndvi2012,{},'ndvi12')
+Map.addLayer(ndvi2013,{},'ndvi13')
+Map.addLayer(ndvi2014,{},'ndvi14')
+Map.addLayer(ndvi2015,{},'ndvi15')
+Map.addLayer(ndvi2016,{},'ndvi16')
+Map.addLayer(ndvi2017,{},'ndvi17')
+Map.addLayer(ndvi2018,{},'ndvi18')
+
+//var ndvi_16bit = ndvi.select('ndvi').toInt16() //may be causing error!!
+//print(ndvi_16bit)
+
+/*Export.image.toDrive({
+  image: ndvi2013,
+  description: 'ndvi13',
+  region: roi,
+  maxPixels: 1e13,
+  crs: 'EPSG:26911',
+  scale:30
+})
+
+Export.image.toDrive({
+  image: ndvi2014,
+  description: 'ndvi14',
+  region: roi,
+  maxPixels: 1e13,
+  crs: 'EPSG:26911',
+  scale:30
+})*/
+
+/*Export.image.toDrive({
+  image: ndvi2015,
+  description: 'ndvi15',
+  region: roi,
+  maxPixels: 1e13,
+  crs: 'EPSG:26911',
+  scale:30
+})*/
+
+/*Export.image.toDrive({
+  image: ndvi2016,
+  description: 'ndvi16',
+  region: roi,
+  maxPixels: 1e13,
+  crs: 'EPSG:26911',
+  scale:30
+})*/
+
+/*Export.image.toDrive({
+  image: ndvi2017,
+  description: 'ndvi17',
+  region: roi,
+  maxPixels: 1e13,
+  crs: 'EPSG:26911',
+  scale:30
+})*/
+
+/*Export.image.toDrive({
+  image: ndvi2018,
+  description: 'ndvi18',
+  region: roi,
+  maxPixels: 1e13,
+  crs: 'EPSG:26911',
+  scale:30
+})*/

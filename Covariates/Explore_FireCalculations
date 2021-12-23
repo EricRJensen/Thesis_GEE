@@ -1,0 +1,178 @@
+/**** Start of imports. If edited, may not auto-convert in the playground. ****/
+var AIMplots = ee.FeatureCollection("users/ericjensen41_default/Thesis/Plots/AIM_modelbuff_100m"),
+    MTBSraster = ee.Image("users/ericjensen41_default/Thesis/Covariates/MTBS_severity_GB_1984_2017");
+/***** End of imports. If edited, may not auto-convert in the playground. *****/
+// Indices to calculate
+// Fire number: Number of times a site burned in between 1984 and the the year the plot was sampled. -- Done
+// Fire return interval: Average number of years between fires from 1984 and the year the plot was sampled. -- Similar to fire frequency
+// Fire frequency: Number of fires that burned on a site over the period from 1984 the year the plot was sampled. -- As percentage of years with fire—done
+// Years since fire -- Done
+// Severity of most recent fire: Mode value of severity class for the most recent fire prior to the year the plot was sampled. -- Done
+// Severity of most severe fire: Maximum mode value for each plot during the period of 1984 to the year the plot was sampled. -- Done
+
+// Fire severity codes from metadata
+// 0: Background/No data <- mask
+// 1: Unburned/Underburned to Low Burn Severity
+// 2: Low Burn Severity
+// 3: Moderate Burn Severity
+// 4: High Burn Severity
+// 5: Increased Greenness/Increased Vegetation Response <- mask
+// 6: Non-Processing Area Mask <- mask
+
+// Mask pixels that do not represent burned area
+var mask = MTBSraster.lte(4).neq(0)
+var MTBSraster = MTBSraster.updateMask(mask)
+print(MTBSraster)
+
+// Visualization parameters for fires with low as yellow, moderate as orange, and high as red
+var visParams = {min: 1, max:4, palette: ['f6ff6e','e4ff06','ffa90c','ff0202']}
+
+// Function to add the number of years of MTBS data that have been collected for calculating fire frequency later
+var addYearsMTBS = function(feature) {
+  var year = ee.Number(feature.get('VisitYear'))
+  return feature.set({YearsOfMTBS: year.subtract(1984)});
+};
+
+// Create feature collections for each year for calculating zonal statistics over
+var AIM2011 = AIMplots.filterMetadata('VisitYear', 'equals', 2011).map(addYearsMTBS)
+var AIM2012 = AIMplots.filterMetadata('VisitYear', 'equals', 2012).map(addYearsMTBS)
+var AIM2013 = AIMplots.filterMetadata('VisitYear', 'equals', 2013).map(addYearsMTBS)
+var AIM2014 = AIMplots.filterMetadata('VisitYear', 'equals', 2014).map(addYearsMTBS)
+var AIM2015 = AIMplots.filterMetadata('VisitYear', 'equals', 2015).map(addYearsMTBS)
+var AIM2016 = AIMplots.filterMetadata('VisitYear', 'equals', 2016).map(addYearsMTBS)
+var AIM2017 = AIMplots.filterMetadata('VisitYear', 'equals', 2017).map(addYearsMTBS)
+print(AIM2011)
+
+// Generate constant image with year of fire for calculating years since fire
+var mtbs_constant = function(IC){
+    
+    // Cast image bands to images in image collection 
+    var M = IC
+    var MTBS_IC = ee.ImageCollection([M.select(0),M.select(1),M.select(2),M.select(3),M.select(4),M.select(5),M.select(6),M.select(7),
+                M.select(8),M.select(9),M.select(10),M.select(11),M.select(12),M.select(13),M.select(14),M.select(15),M.select(16),M.select(17),
+                M.select(18),M.select(19),M.select(20),M.select(21),M.select(22),M.select(23),M.select(24),M.select(25),M.select(26),M.select(27),
+                M.select(28),M.select(29),M.select(30),M.select(31),M.select(32),M.select(33)])
+
+      var generateConstant = function(image) {
+          var indvYear = ee.Image(image)
+          var yearStr = ee.String(indvYear.bandNames().get(0)).slice(4,8)
+          var yearNum = ee.Number.parse(yearStr)
+          var yearConstant = ee.Image([yearNum]).rename(yearStr)
+          var yearMask = indvYear
+          var yearMasked = yearConstant.updateMask(yearMask)
+          return yearMasked
+          }
+    
+    //  Map function to create image collection
+    var MTBS_const_IC = MTBS_IC.map(generateConstant)
+    // Convert image collection to multiband image for reduce regions
+    var MTBS_const_I = MTBS_const_IC.toBands()
+    return(MTBS_const_I) }
+
+
+// Function to create image with bands of interest for calculating predictors
+var MTBS_yr_img = function(seq) {
+          var yr_img = ee.Image(MTBSraster.select(seq).reduce(ee.Reducer.count()).rename('FireCount'))
+                        .addBands(MTBSraster.select(seq).reduce(ee.Reducer.max()).rename('MaxSev'))
+                        .addBands(MTBSraster.select(seq).reduce(ee.Reducer.lastNonNull()).rename('RecentSev'))
+                        .addBands(mtbs_constant(MTBSraster).select(seq).reduce(ee.Reducer.lastNonNull()).rename('LastFire'))
+          return yr_img
+}
+
+// Run function for each year
+var MTBSstats2011 = MTBS_yr_img(ee.List.sequence(0,27,1))
+var MTBSstats2012 = MTBS_yr_img(ee.List.sequence(0,28,1))
+var MTBSstats2013 = MTBS_yr_img(ee.List.sequence(0,29,1))
+var MTBSstats2014 = MTBS_yr_img(ee.List.sequence(0,30,1))
+var MTBSstats2015 = MTBS_yr_img(ee.List.sequence(0,31,1))
+var MTBSstats2016 = MTBS_yr_img(ee.List.sequence(0,32,1))
+var MTBSstats2017 = MTBS_yr_img(ee.List.sequence(0,33,1))
+
+
+// Function to calculate years since fire
+var YrSinceFire = function(feature) {
+  var visitYear = ee.Number(feature.get('VisitYear'))
+  var fireYear = ee.Number(feature.get('LastFire'))
+  var isNull = ee.Algorithms.IsEqual(fireYear, null)
+  var noFire = ee.Number(feature.get('YearsOfMTBS'))
+  return ee.Algorithms.If(isNull, feature.set({YrSinceFire: noFire.add(1)}), feature.set({YrSinceFire: visitYear.subtract(fireYear)}));
+};
+
+// Function to calculate fire frequency
+var FireFreq = function(feature) {
+  var MTBSyears = ee.Number(feature.get('YearsOfMTBS'))
+  var FireCount = ee.Number(feature.get('FireCount'))
+  var isNull = ee.Algorithms.IsEqual(FireCount, null)
+  return ee.Algorithms.If(isNull, feature.set({FireFreq: 0}), feature.set({FireFreq: FireCount.divide(MTBSyears)}));
+};
+
+
+// Add reducer output to the Features in the collection.
+var AIM2011RR = MTBSstats2011
+  .reduceRegions({
+      collection: AIM2011,
+      reducer: ee.Reducer.mode(),
+      scale: 30,})
+  .map(YrSinceFire)
+  .map(FireFreq)
+  
+var AIM2012RR = MTBSstats2012
+  .reduceRegions({
+      collection: AIM2012,
+      reducer: ee.Reducer.mode(),
+      scale: 30,})
+  .map(YrSinceFire)
+  
+print(AIM2011RR,'AIM2011RR')
+print(AIM2012RR,'AIM2012RR')
+
+var MTBSstats2011a = MTBSstats2011.set('Year', 2011)
+
+// Test reduce region functions
+
+var testRR = function(img) {
+  
+  var ImgYr = img.get('Year')
+  var AIMYr = AIMplots.filterMetadata('VisitYear', 'equals', ImgYr)
+
+  var RR_mean = img.reduceRegions({collection: AIMYr, reducer: ee.Reducer.mean(), scale: 30}).select(['PrimaryKey', 'FireCount', 'MaxSev', 'RecentSev', 'LastFire'], ['PrimaryKey', 'FireCountM', 'MaxSevM', 'RecentSevM', 'LastFireM'])
+  print(RR_mean, 'rrmean')
+  var RR_stdd = img.reduceRegions({collection: AIMYr, reducer: ee.Reducer.stdDev(), scale: 30}).select(['PrimaryKey', 'FireCount', 'MaxSev', 'RecentSev', 'LastFire'], ['PrimaryKey', 'FireCountS', 'MaxSevS', 'RecentSevS', 'LastFireS'])
+  print(RR_stdd, 'rrstd')
+  
+  var toyFilter = ee.Filter.equals({
+  leftField: 'PrimaryKey',
+  rightField: 'PrimaryKey'});
+  
+  var innerJoin = ee.Join.inner();
+  
+  var toyJoin = innerJoin.apply(RR_mean, RR_stdd,  toyFilter);
+  
+  print('Inner join toy example:', toyJoin); 
+  
+  print(toyJoin.map(function(pair) {
+  var f1 = ee.Feature(pair.get('primary'));
+  var f2 = ee.Feature(pair.get('secondary'));
+  return f1.set(f2.toDictionary())}))
+  
+};
+
+
+print(MTBSstats2011a, 'mtbsstats')
+var test = testRR(MTBSstats2011a)
+  
+
+
+
+// Export.table.toDrive({
+//   collection: AIM2011test,
+//   description:'AIM2011test',
+//   fileFormat: 'CSV'
+// });
+
+
+
+
+// View Layers
+Map.addLayer(MTBSstats2011.select(1), visParams, 'MTBSstats2011',false)
+Map.addLayer(AIM2011, {}, 'AIM2011')

@@ -1,0 +1,30 @@
+/**** Start of imports. If edited, may not auto-convert in the playground. ****/
+var GB = ee.FeatureCollection("users/ericjensen41_default/Thesis/Project_Boundaries/LIIIGBBoundary"),
+    GBpartial = ee.FeatureCollection("users/ericjensen41_default/Thesis/Project_Boundaries/NorCalWinne_GB");
+/***** End of imports. If edited, may not auto-convert in the playground. *****/
+Map.addLayer(GB, {}, 'full')
+Map.addLayer(GBpartial, {}, 'partial')
+
+var GBcentroid = GB.geometry().centroid()
+Map.addLayer(GBcentroid)
+print(GBcentroid)
+
+var rectangle = ee.Geometry.Rectangle([-122, 36, -111, 44]);
+
+var GBnw = ee.Feature(ee.Geometry.Rectangle([-122, 44.5, -116.24, 40.40]));
+var GBsw = ee.Feature(ee.Geometry.Rectangle([-122, 36, -116.24, 40.40]));
+var GBne = ee.Feature(ee.Geometry.Rectangle([-116.24, 40.40, -111, 44.5]));
+var GBse = ee.Feature(ee.Geometry.Rectangle([-116.24, 40.40, -111, 36]));
+
+var GBquads_list = ee.List([GBnw, GBsw, GBne, GBse])
+
+var GBquads = ee.FeatureCollection(GBquads_list)
+print(GBquads)
+
+Map.addLayer(GBquads, {}, 'GBquads')
+
+Export.table.toAsset({
+  collection: GBquads,
+  description: 'GreatBasinQuadrants',
+  assetId: 'GreatBasinQuadrants',
+});

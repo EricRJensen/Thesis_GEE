@@ -1,0 +1,108 @@
+/**** Start of imports. If edited, may not auto-convert in the playground. ****/
+var TextureClass = ee.Image("OpenLandMap/SOL/SOL_TEXTURE-CLASS_USDA-TT_M/v02"),
+    SoilWater = ee.Image("OpenLandMap/SOL/SOL_WATERCONTENT-33KPA_USDA-4B1C_M/v01"),
+    Carbon = ee.Image("OpenLandMap/SOL/SOL_ORGANIC-CARBON_USDA-6A1C_M/v02"),
+    Clay = ee.Image("OpenLandMap/SOL/SOL_CLAY-WFRACTION_USDA-3A1A1A_M/v02"),
+    Sand = ee.Image("OpenLandMap/SOL/SOL_SAND-WFRACTION_USDA-3A1A1A_M/v02"),
+    test_roi = ee.FeatureCollection("users/ericjensen41_default/Thesis/Project_Boundaries/LIIIGBBoundary"),
+    AIM_buffer = ee.FeatureCollection("users/ericjensen41_default/Thesis/Plots/AIM_modelbuff_100m");
+/***** End of imports. If edited, may not auto-convert in the playground. *****/
+
+// Reduce regions for the AIM plots to extract zonal statistics
+// Run the mean and standard deviation reduce regions for the year of interest
+
+// Soil water capacity
+
+print(Sand)
+
+var sand10 = Sand.select([0])
+var sand30 = Sand.select([0,1]).reduce(ee.Reducer.mean())
+var sand60 = Sand.select([0,1,2]).reduce(ee.Reducer.mean())
+var sand100 = Sand.select([0,1,2,3]).reduce(ee.Reducer.mean())
+print(sand10)
+print(sand100)
+
+Map.addLayer(sand10, {}, 'sand10')
+Map.addLayer(sand100, {}, 'sand100')
+
+
+var water10 = SoilWater.select([0])
+var water30 = SoilWater.select([0,1]).reduce(ee.Reducer.mean())
+var water60 = SoilWater.select([0,1,2]).reduce(ee.Reducer.mean())
+var water100 = SoilWater.select([0,1,2,3]).reduce(ee.Reducer.mean())
+print(water10)
+print(water100)
+
+var test = water10.addBands(water30).rename('water10','water30')
+print(test, 'test')
+
+
+
+var SoilWater_zonal = SoilWater.reduceRegions({
+  collection: AIM_buffer,
+  reducer: ee.Reducer.mean()
+})
+
+// Soil carbon
+var Carbon_zonal = Carbon.reduceRegions({
+  collection: AIM_buffer,
+  reducer: ee.Reducer.mean()
+})
+
+// Soil clay
+var Clay_zonal = Clay.reduceRegions({
+  collection: AIM_buffer,
+  reducer: ee.Reducer.mean()
+})
+
+// Soil sand
+var Sand_zonal = Sand.reduceRegions({
+  collection: AIM_buffer,
+  reducer: ee.Reducer.mean()
+})
+
+// Soil texture
+var Texture_zonal = TextureClass.reduceRegions({
+  collection: AIM_buffer,
+  reducer: ee.Reducer.mode()
+})
+
+//////////////////////////////////////////////////////////
+///// Export soils data for calculating zonal stats //////
+
+// Export.image.toDrive({
+//   image: Sand,
+//   description: 'Sand',
+//   scale: 30,
+//   region: test_roi.geometry(), 
+//   maxPixels: 1e13});
+
+// Export.image.toDrive({
+//   image: Clay,
+//   description: 'Clay',
+//   scale: 30,
+//   region: test_roi.geometry(), 
+//   maxPixels: 1e13});
+
+// Export.image.toDrive({
+//   image: TextureClass,
+//   description: 'TextureClass',
+//   scale: 30,
+//   region: test_roi.geometry(), 
+//   maxPixels: 1e13});
+
+// Export.image.toDrive({
+//   image: Carbon,
+//   description: 'Carbon',
+//   scale: 30,
+//   region: test_roi.geometry(), 
+//   maxPixels: 1e13});
+
+// Export.image.toDrive({
+//   image: SoilWater,
+//   description: 'SoilWater',
+//   scale: 30,
+//   region: test_roi.geometry(), 
+//   maxPixels: 1e13});
+
+// Export zonal statistics as needed

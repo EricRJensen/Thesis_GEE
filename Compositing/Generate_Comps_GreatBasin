@@ -1,0 +1,735 @@
+/**** Start of imports. If edited, may not auto-convert in the playground. ****/
+var test_roi = ee.FeatureCollection("users/ericjensen41_default/Thesis/Project_Boundaries/LIIIGBBoundary"),
+    AIM_buffer = ee.FeatureCollection("users/ericjensen41_default/Thesis/Plots/AIM_modelbuff_100m");
+/***** End of imports. If edited, may not auto-convert in the playground. *****/
+
+// date: 2018-04-19
+// author: Zhiqiang Yang  | zhiqiang.yang@oregonstate.edu
+//         Justin Braaten | jstnbraaten@gmail.com
+//         Robert Kennedy | rkennedy@coas.oregonstate.edu
+// website: https://github.com/eMapR/LT-GEE
+
+
+// Batch export script
+// var batch = require('users/fitoprincipe/geetools:batch')
+
+// Add AIM plots to map and print
+//Map.addLayer(AIM_buffer, {}, 'AIM buffer')
+print(AIM_buffer, 'AIM buffer')
+
+//########################################################################################################
+//##### INPUTS ##### 
+//########################################################################################################
+// define a geometry - there are lots of ways to do this, see the GEE User guide
+//var geometry = ee.FeatureCollection('ft:10uDvL5YjRQGjtZZhHWUx9fn8Ijd0HMu7IZuULxSj')
+//var aoi = geometry; // should be a GEE geometry object - here we are getting it from an drawn polygon
+
+exports.doc = 'These are functions to run LandTrendr';
+var ltgee = require('users/emaprlab/public:Modules/LandTrendr.js');
+var aoi = test_roi;
+
+// define years and dates to include in landsat image collection
+var startYear  = 1984;    // what year do you want to start the time series 
+var endYear    = 2019;    // what year do you want to end the time series
+var startDay   = '04-01'; // what is the beginniing of date filter | month-day
+var endDay     = '06-15'; // what is the end of date filter | month-day
+
+var NDVI = 'NDVI';
+var ftvList1 = ['NDVI'];
+var NBR = 'NBR';
+var ftvList2 = ['NBR'];
+var TCB = 'TCB';
+var ftvList3 = ['TCB'];
+var TCG = 'TCG';
+var ftvList4 = ['TCG'];
+var TCW = 'TCW';
+var ftvList5 = ['TCW'];
+
+// define the segmentation parameters:
+// reference: Kennedy, R. E., Yang, Z., & Cohen, W. B. (2010). Detecting trends in forest disturbance and recovery using yearly Landsat time series: 1. LandTrendr—Temporal segmentation algorithms. Remote Sensing of Environment, 114(12), 2897-2910.
+//            https://github.com/eMapR/LT-GEE
+var run_params = { 
+  maxSegments:            6,
+  spikeThreshold:         0.9,
+  vertexCountOvershoot:   3,
+  preventOneYearRecovery: true,
+  recoveryThreshold:      0.25,
+  pvalThreshold:          0.05,
+  bestModelProportion:    0.75,
+  minObservationsNeeded:  6
+};
+//###########################################################i#############################################
+
+
+
+///////////////////////////////////////////////////////////////////////////////////////////
+////    BUILD ANNUAL IMAGE COLLECTION TO ASSESS UNFITTED DATA COVERAGE   /////////////////
+/////////////////////////////////////////////////////////////////////////////////////////
+
+var annualSRcollection = ltgee.buildSRcollection(startYear, endYear, startDay, endDay, aoi);
+var annualLTcollection1 = ltgee.buildLTcollection(annualSRcollection, NDVI, ftvList1);
+var annualLTcollection2 = ltgee.buildLTcollection(annualSRcollection, NBR, ftvList2);
+var annualLTcollection3 = ltgee.buildLTcollection(annualSRcollection, TCB, ftvList3);
+var annualLTcollection4 = ltgee.buildLTcollection(annualSRcollection, TCG, ftvList4);
+var annualLTcollection5 = ltgee.buildLTcollection(annualSRcollection, TCW, ftvList5);
+
+///////////////////////////////////////////////////////////////////////////////////////////
+//////////////////////// Checking coverage of unfitted images ////////////////////////////
+/////////////////////////////////////////////////////////////////////////////////////////
+
+//// Turn the annualLT image collection (harmonized, calibrated, cloud masked, mediod composites) into a list to select each image and display each on the map.
+//// This is a visual method to identify years of concern and see which years LT has to fill in gaps, or check for multiyear gaps causing trend anomolies in an area.
+//// In this case, TCB is being used to identify gaps in the unfitted data.
+
+// Create ee.Number list of years of analysis to parse list to bandnames
+var years = ee.List.sequence(startYear, endYear)
+
+// -----------------------------------------
+// NDVI image collection 
+
+// Scale NDVI values to -1 to 1 and add year property to image
+var ndviImages = function(images) {
+    return ee.Image(images)
+      .select('NDVI')
+      .toInt16()
+};
+
+// Apply function to each item in list using map() function
+var ndviStack = annualLTcollection1.map(ndviImages)
+
+// Create list of years of analysis to assign to bandnames
+var makeList = function(i){
+  return ee.String("ndvi").cat(years.get(i)).slice(0,8)
+}
+
+var ndviNames = ee.List.sequence(0,(endYear)-startYear).map(makeList)
+
+// Convert to image for calculating zonal statistics and name list
+var ndviImage = ndviStack.toBands().set('Year', startYear).rename(ndviNames)
+print(ndviImage)
+
+Export.image.toAsset({
+  image: ndviImage,
+  description: 'NDVI_1984_2019',
+  assetId: 'NDVI_1984_2019',
+  scale: 30,
+  maxPixels: 1e13,
+  region: test_roi.geometry()})
+
+
+// -----------------------------------------
+// nbr image collection 
+
+// Scale NBR values to -1 to 1 and add year property to image
+var nbrImages = function(images) {
+    return ee.Image(images)
+      .select('NBR')
+      .toInt16()
+};
+
+// Apply function to each item in list using map() function
+var nbrStack = annualLTcollection2.map(nbrImages)
+
+// Create list of years of analysis to assign to bandnames
+var makeList = function(i){
+  return ee.String("nbr").cat(years.get(i)).slice(0,7)
+}
+
+var nbrNames = ee.List.sequence(0,(endYear)-startYear).map(makeList)
+
+// Convert to image for calculating zonal statistics and name list
+var nbrImage = nbrStack.toBands().set('Year', startYear).rename(nbrNames)
+print(nbrImage)
+
+Export.image.toAsset({
+  image: nbrImage,
+  description: 'NBR_1984_2019',
+  assetId: 'NBR_1984_2019',
+  scale: 30,
+  maxPixels: 1e13,
+  region: test_roi.geometry()})
+
+
+// -----------------------------------------
+// tcb image collection 
+
+// Scale tcb values to -1 to 1 and add year property to image
+var tcbImages = function(images) {
+    return ee.Image(images)
+      .select('TCB')
+      .toInt16()
+};
+
+// Apply function to each item in list using map() function
+var tcbStack = annualLTcollection3.map(tcbImages)
+
+// Create list of years of analysis to assign to bandnames
+var makeList = function(i){
+  return ee.String("tcb").cat(years.get(i)).slice(0,7)
+}
+
+var tcbNames = ee.List.sequence(0,(endYear)-startYear).map(makeList)
+
+// Convert to image for calculating zonal statistics and name list
+var tcbImage = tcbStack.toBands().set('Year', startYear).rename(tcbNames)
+print(tcbImage)
+
+Export.image.toAsset({
+  image: tcbImage,
+  description: 'TCB_1984_2019',
+  assetId: 'TCB_1984_2019',
+  scale: 30,
+  maxPixels: 1e13,
+  region: test_roi.geometry()})
+
+
+// -----------------------------------------
+// tcg image collection 
+
+// Scale tcg values to -1 to 1 and add year property to image
+var tcgImages = function(images) {
+    return ee.Image(images)
+      .select('TCG')
+      .toInt16()
+};
+
+// Apply function to each item in list using map() function
+var tcgStack = annualLTcollection4.map(tcgImages)
+
+// Create list of years of analysis to assign to bandnames
+var makeList = function(i){
+  return ee.String("tcg").cat(years.get(i)).slice(0,7)
+}
+// 
+var tcgNames = ee.List.sequence(0,(endYear)-startYear).map(makeList)
+
+// Convert to image for calculating zonal statistics and name list
+var tcgImage = tcgStack.toBands().set('Year', startYear).rename(tcgNames)
+print(tcgImage)
+
+Export.image.toAsset({
+  image: tcgImage,
+  description: 'TCG_1984_2019',
+  assetId: 'TCG_1984_2019',
+  scale: 30,
+  maxPixels: 1e13,
+  region: test_roi.geometry()})
+
+// -----------------------------------------
+// tcw image collection 
+
+// Scale tcw values to -1 to 1 and add year property to image
+var tcwImages = function(images) {
+    return ee.Image(images)
+      .select('TCW')
+      .toInt16()
+};
+
+// Apply function to each item in list using map() function
+var tcwStack = annualLTcollection5.map(tcwImages)
+
+// Create list of years of analysis to assign to bandnames
+var makeList = function(i){
+  return ee.String("tcw").cat(years.get(i)).slice(0,7)
+}
+
+var tcwNames = ee.List.sequence(0,(endYear)-startYear).map(makeList)
+
+// Convert to image for calculating zonal statistics and name list
+var tcwImage = tcwStack.toBands().set('Year', startYear).rename(tcwNames)
+print(tcwImage)
+
+Export.image.toAsset({
+  image: tcwImage,
+  description: 'TCW_1984_2019',
+  assetId: 'TCW_1984_2019',
+  scale: 30,
+  maxPixels: 1e13,
+  region: test_roi.geometry()})
+
+
+////////////////////////////////////////////////////////
+////////// Run unsupervised classification /////////////
+
+// var training = annualSRcollection.first().sample({
+//   region: test_roi,
+//   scale: 30
+// });
+
+// var k_means_cluster = ee.Clusterer.wekaKMeans(15).train(training);
+
+// var k_means_GB = annualSRcollection.first().reproject('EPSG:2163').cluster(k_means_cluster)
+// print(k_means_GB, 'k means GB')
+
+// Export.image.toAsset({
+//   image: k_means_GB,
+//   description: 'kMeansTest',
+//   assetId: 'kMeansTest',
+//   scale: 30,
+//   region: test_roi.geometry()})
+
+////////////////////////////////////////////////////////
+/////// Calculate zonal statistics for each index //////
+
+// --------------------------------------------
+// // NDVI zonal statistics
+
+// // Define main variables for the year of interest for script and export
+// var year = 6
+// var yearReal = year + 2011
+// var analysisYears = ee.List.sequence(2011,2017)
+// var ndviStr = ee.String("NDVI").cat(ee.String(analysisYears.get(year)).slice(0,4))
+
+// // Select the annual band for the year of interest
+// var ndviRR = ndviImage.select(ee.String("ndvi").cat(ee.String(analysisYears.get(year)).slice(0,4)))
+//     .reproject('EPSG:2163')
+
+// // Select the AIM plots for the year of interest
+// var AIM_slice = AIM_buffer.filterMetadata('VisitYear', 'equals', analysisYears.get(year))
+
+// // Run the mean and standard deviation reduce regions for the year of interest
+// var meanNDVI = ndviRR.reduceRegions({
+//   collection: AIM_slice,
+//   reducer: ee.Reducer.mean()
+// })
+
+// var stdNDVI = ndviRR.reduceRegions({
+//   collection: AIM_slice,
+//   reducer: ee.Reducer.stdDev()
+// })
+// print(meanNDVI, "meanNDVI")
+// print(stdNDVI, "stdNDVI")
+
+// // Export tables to drive
+// Export.table.toDrive({
+//   collection: meanNDVI,
+//   description: "meanNDVI"+yearReal,
+//   fileFormat: 'CSV'
+// });
+
+// Export.table.toDrive({
+//   collection: stdNDVI,
+//   description: "stdNDVI"+yearReal,
+//   fileFormat: 'CSV'
+// });
+
+//-----------------------------------------------
+//attempt at function
+// var analysisYears = ee.List.sequence(2011,2017)
+// print(analysisYears)
+
+// var muNDVIFunc = function(i){ 
+//   var ndviRR = ndviImage.select(ee.String("ndvi").cat(ee.String(i).slice(0,4))).reproject('EPSG:2163')
+//   var AIM_slice = AIM_buffer.filterMetadata('VisitYear', 'equals', i)
+//   return ndviRR.reduceRegions({
+//         collection: AIM_slice,
+//         reducer: ee.Reducer.mean()})
+// }
+
+// var meanNDVI1 = analysisYears.map(muNDVIFunc)
+// print(meanNDVI1, 'meanNDVI func')
+
+
+// // --------------------------------------------
+// // NBR zonal statistics
+
+// // Define main variables for the year of interest for script and export
+// var nbrStr = ee.String("NBR").cat(ee.String(analysisYears.get(year)).slice(0,4))
+
+// // Select the annual band for the year of interest
+// var nbrRR = nbrImage.select(ee.String("nbr").cat(ee.String(analysisYears.get(year)).slice(0,4)))
+//     .reproject('EPSG:2163')
+
+// // Select the AIM plots for the year of interest
+// var AIM_slice = AIM_buffer.filterMetadata('VisitYear', 'equals', analysisYears.get(year))
+
+// // Run the mean and standard deviation reduce regions for the year of interest
+// var meanNBR = nbrRR.reduceRegions({
+//   collection: AIM_slice,
+//   reducer: ee.Reducer.mean()
+// })
+
+// var stdNBR = nbrRR.reduceRegions({
+//   collection: AIM_slice,
+//   reducer: ee.Reducer.stdDev()
+// })
+// print(meanNBR, "meanNBR")
+// print(stdNBR, "stdNBR")
+
+// // Export tables to drive
+// Export.table.toDrive({
+//   collection: meanNBR,
+//   description: "meanNBR"+yearReal,
+//   fileFormat: 'CSV'
+// });
+
+// Export.table.toDrive({
+//   collection: stdNBR,
+//   description: "stdNBR"+yearReal,
+//   fileFormat: 'CSV'
+// });
+
+// // --------------------------------------------
+// // TCB zonal statistics
+
+// // Define main variables for the year of interest for script and export
+// var tcbStr = ee.String("TCB").cat(ee.String(analysisYears.get(year)).slice(0,4))
+
+// // Select the annual band for the year of interest
+// var tcbRR = tcbImage.select(ee.String("tcb").cat(ee.String(analysisYears.get(year)).slice(0,4)))
+//     .reproject('EPSG:2163')
+
+// // Select the AIM plots for the year of interest
+// var AIM_slice = AIM_buffer.filterMetadata('VisitYear', 'equals', analysisYears.get(year))
+
+// // Run the mean and standard deviation reduce regions for the year of interest
+// var meanTCB = tcbRR.reduceRegions({
+//   collection: AIM_slice,
+//   reducer: ee.Reducer.mean()
+// })
+
+// var stdTCB = tcbRR.reduceRegions({
+//   collection: AIM_slice,
+//   reducer: ee.Reducer.stdDev()
+// })
+// print(meanTCB, "meanTCB")
+// print(stdTCB, "stdTCB")
+
+// // Export tables to drive
+// Export.table.toDrive({
+//   collection: meanTCB,
+//   description: "meanTCB"+yearReal,
+//   fileFormat: 'CSV'
+// });
+
+// Export.table.toDrive({
+//   collection: stdTCB,
+//   description: "stdTCB"+yearReal,
+//   fileFormat: 'CSV'
+// });
+
+// // --------------------------------------------
+// // TCG zonal statistics
+
+// // Define main variables for the year of interest for script and export
+// var tcgStr = ee.String("TCG").cat(ee.String(analysisYears.get(year)).slice(0,4))
+
+// // Select the annual band for the year of interest
+// var tcgRR = tcgImage.select(ee.String("tcg").cat(ee.String(analysisYears.get(year)).slice(0,4)))
+//     .reproject('EPSG:2163')
+
+// // Select the AIM plots for the year of interest
+// var AIM_slice = AIM_buffer.filterMetadata('VisitYear', 'equals', analysisYears.get(year))
+
+// // Run the mean and standard deviation reduce regions for the year of interest
+// var meanTCG = tcgRR.reduceRegions({
+//   collection: AIM_slice,
+//   reducer: ee.Reducer.mean()
+// })
+
+// var stdTCG = tcgRR.reduceRegions({
+//   collection: AIM_slice,
+//   reducer: ee.Reducer.stdDev()
+// })
+// print(meanTCG, "meanTCG")
+// print(stdTCG, "stdTCG")
+
+// // Export tables to drive
+// Export.table.toDrive({
+//   collection: meanTCG,
+//   description: "meanTCG"+yearReal,
+//   fileFormat: 'CSV'
+// });
+
+// Export.table.toDrive({
+//   collection: stdTCG,
+//   description: "stdTCG"+yearReal,
+//   fileFormat: 'CSV'
+// });
+
+// // --------------------------------------------
+// // TCW zonal statistics
+
+// // Define main variables for the year of interest for script and export
+// var tcwStr = ee.String("TCW").cat(ee.String(analysisYears.get(year)).slice(0,4))
+
+// // Select the annual band for the year of interest
+// var tcwRR = tcwImage.select(ee.String("tcw").cat(ee.String(analysisYears.get(year)).slice(0,4)))
+//     .reproject('EPSG:2163')
+
+// // Select the AIM plots for the year of interest
+// var AIM_slice = AIM_buffer.filterMetadata('VisitYear', 'equals', analysisYears.get(year))
+
+// // Run the mean and standard deviation reduce regions for the year of interest
+// var meanTCW = tcwRR.reduceRegions({
+//   collection: AIM_slice,
+//   reducer: ee.Reducer.mean()
+// })
+
+// var stdTCW = tcwRR.reduceRegions({
+//   collection: AIM_slice,
+//   reducer: ee.Reducer.stdDev()
+// })
+// print(meanTCW, "meanTCW")
+// print(stdTCW, "stdTCW")
+
+// // Export tables to drive
+// Export.table.toDrive({
+//   collection: meanTCW,
+//   description: "meanTCW"+yearReal,
+//   fileFormat: 'CSV'
+// });
+
+// Export.table.toDrive({
+//   collection: stdTCW,
+//   description: "stdTCW"+yearReal,
+//   fileFormat: 'CSV'
+// });
+
+
+////////////////////////////////////////////////////////////
+////// Export 2017 composites for predictive modeling //////
+
+// var ndvi2017 = ndviStack.first().toInt16();
+// var nbr2017 = nbrStack.first().toInt16();
+// var tcb2017 = tcbStack.first().toInt16();
+// var tcg2017 = tcgStack.first().toInt16();
+// var tcw2017 = tcwStack.first().toInt16();
+// print(ndvi2017,nbr2017,tcb2017,tcg2017,tcw2017);
+
+// Export.image.toDrive({
+//   image: ndvi2017,
+//   description: 'ndvi2017',
+//   scale: 30,
+//   region: test_roi.geometry(), 
+//   maxPixels: 1e13});
+  
+// Export.image.toDrive({
+//   image: nbr2017,
+//   description: 'nbr2017',
+//   scale: 30,
+//   region: test_roi.geometry(), 
+//   maxPixels: 1e13});
+  
+// Export.image.toDrive({
+//   image: tcb2017,
+//   description: 'tcb2017',
+//   scale: 30,
+//   region: test_roi.geometry(), 
+//   maxPixels: 1e13});
+  
+// Export.image.toDrive({
+//   image: tcg2017,
+//   description: 'tcg2017',
+//   scale: 30,
+//   region: test_roi.geometry(), 
+//   maxPixels: 1e13});
+  
+// Export.image.toDrive({
+//   image: tcw2017,
+//   description: 'tcw2017',
+//   scale: 30,
+//   region: test_roi.geometry(), 
+//   maxPixels: 1e13});
+
+
+//////////////////////////////////////////////////////////////////////////////
+//////////////////// Update this with compact functions //////////////////////
+//////////////////////////////////////////////////////////////////////////////
+
+// var listOfImages = annualLTcollection1.toList(annualLTcollection1.size());
+// var check84 = ee.Image(listOfImages.get(0)).select("NDVI").divide(-1000)
+// var check85 = ee.Image(listOfImages.get(1)).select("NDVI").divide(-1000)
+// var check86 = ee.Image(listOfImages.get(2)).select("NDVI").divide(-1000)
+// var check87 = ee.Image(listOfImages.get(3)).select("NDVI").divide(-1000)
+// var check88 = ee.Image(listOfImages.get(4)).select("NDVI").divide(-1000)
+// var check89 = ee.Image(listOfImages.get(5)).select("NDVI").divide(-1000)
+// var check90 = ee.Image(listOfImages.get(6)).select("NDVI").divide(-1000)
+// var check91 = ee.Image(listOfImages.get(7)).select("NDVI").divide(-1000)
+// var check92 = ee.Image(listOfImages.get(8)).select("NDVI").divide(-1000)
+// var check93 = ee.Image(listOfImages.get(9)).select("NDVI").divide(-1000)
+// var check94 = ee.Image(listOfImages.get(10)).select("NDVI").divide(-1000)
+// var check95 = ee.Image(listOfImages.get(11)).select("NDVI").divide(-1000)
+// var check96 = ee.Image(listOfImages.get(12)).select("NDVI").divide(-1000)
+// var check97 = ee.Image(listOfImages.get(13)).select("NDVI").divide(-1000)
+// var check98 = ee.Image(listOfImages.get(14)).select("NDVI").divide(-1000)
+// var check99 = ee.Image(listOfImages.get(15)).select("NDVI").divide(-1000)
+// var check00 = ee.Image(listOfImages.get(16)).select("NDVI").divide(-1000)
+// var check01 = ee.Image(listOfImages.get(17)).select("NDVI").divide(-1000)
+// var check02 = ee.Image(listOfImages.get(18)).select("NDVI").divide(-1000)
+// var check03 = ee.Image(listOfImages.get(19)).select("NDVI").divide(-1000)
+// var check04 = ee.Image(listOfImages.get(20)).select("NDVI").divide(-1000)
+// var check05 = ee.Image(listOfImages.get(21)).select("NDVI").divide(-1000)
+// // var check06 = ee.Image(listOfImages.get(22)).select("NDVI").divide(-1000)
+// // var check07 = ee.Image(listOfImages.get(23)).select("NDVI").divide(-1000)
+// // var check08 = ee.Image(listOfImages.get(24)).select("NDVI").divide(-1000)
+// // var check09 = ee.Image(listOfImages.get(25)).select("NDVI").divide(-1000)
+// // var check10 = ee.Image(listOfImages.get(26)).select("NDVI").divide(-1000)
+// // var check11 = ee.Image(listOfImages.get(27)).select("NDVI").divide(-1000)
+// // var check12 = ee.Image(listOfImages.get(28)).select("NDVI").divide(-1000)
+// // var check13 = ee.Image(listOfImages.get(29)).select("NDVI").divide(-1000)
+// // var check14 = ee.Image(listOfImages.get(30)).select("NDVI").divide(-1000)
+// // var check15 = ee.Image(listOfImages.get(31)).select("NDVI").divide(-1000)
+// // var check16 = ee.Image(listOfImages.get(32)).select("NDVI").divide(-1000)
+// // var check17 = ee.Image(listOfImages.get(33)).select("NDVI").divide(-1000)
+// // var check18 = ee.Image(listOfImages.get(34)).select("NDVI").divide(-1000)
+// // var check19 = ee.Image(listOfImages.get(35)).select("NDVI").divide(-1000)
+
+// var mergeBands = function(image, previous) {
+//   return ee.Image(previous).addBands(image);
+// };
+// var NDVI_unfit = ndvi_u.iterate(mergeBands, ee.Image([]));
+// print(NDVI_unfit,'NDVI_unfit')
+
+// Map.addLayer(check84.select("NDVI"),{},'1984',false)  // worst of all—most of the region is missing for one reason or another
+// Map.addLayer(check85.select("NDVI"),{},'1985',false)  // fair
+// Map.addLayer(check86.select("NDVI"),{},'1986',false)  // very bad—most of the region is missing for one reason or another
+// Map.addLayer(check87.select("NDVI"),{},'1987',false)  // good
+// Map.addLayer(check88.select("NDVI"),{},'1988',false)  // good
+// Map.addLayer(check89.select("NDVI"),{},'1989',false)  // very bad—most of the region is missing for one reason or another
+// Map.addLayer(check90.select("NDVI"),{},'1990',false)  // good
+// Map.addLayer(check91.select("NDVI"),{},'1991',false)  // very bad—most of the region is missing for one reason or another
+// Map.addLayer(check92.select("NDVI"),{},'1992',false)  // bad—much of the region is missing due to cloud cover
+// Map.addLayer(check93.select("NDVI"),{},'1993',false)  // bad—much of the region is missing due to cloud cover
+// Map.addLayer(check94.select("NDVI"),{},'1994',false)  // fair
+// Map.addLayer(check95.select("NDVI"),{},'1995',false)  // very bad—most of the region is missing for one reason or another
+// Map.addLayer(check96.select("NDVI"),{},'1996',false)  // fair
+// Map.addLayer(check97.select("NDVI"),{},'1997',false)  // bad—much of the region is missing due to cloud cover
+// Map.addLayer(check98.select("NDVI"),{},'1998',false)  // very bad—most of the region is missing for one reason or another
+// Map.addLayer(check99.select("NDVI"),{},'1999',false)  // very bad—most of the region is missing for one reason or another
+// Map.addLayer(check00.select("NDVI"),{},'2000',false)  // fair
+// Map.addLayer(check01.select("NDVI"),{},'2001',false)  // good
+// Map.addLayer(check02.select("NDVI"),{},'2002',false)  // fair
+// Map.addLayer(check03.select("NDVI"),{},'2003',false)  // fair
+// Map.addLayer(check04.select("NDVI"),{},'2004',false)  // good
+// Map.addLayer(check05.select("NDVI"),{},'2005',false)  // bad—striping and poor coverage over mountain ranges
+// // Map.addLayer(check06.select("NDVI"),{},'2006',false)  // fair
+// // Map.addLayer(check07.select("NDVI"),{},'2007',false)  // good
+// // Map.addLayer(check08.select("NDVI"),{},'2008',false)  // fair
+// // Map.addLayer(check09.select("NDVI"),{},'2009',false)  // fair
+// // Map.addLayer(check10.select("NDVI"),{},'2010',false)  // fair
+// // Map.addLayer(check11.select("NDVI"),{},'2011',false)  // bad—striping; poor coverage over mountain ranges
+// // Map.addLayer(check12.select("NDVI"),{},'2012',false)  // very bad—severe striping; poor coverage from mountain ranges
+// // Map.addLayer(check13.select("NDVI"),{},'2013',false)  // fair—bad in the northeast; unclear why...
+// // Map.addLayer(check14.select("NDVI"),{},'2014',false)  // very good
+// // Map.addLayer(check15.select("NDVI"),{},'2015',false)  // very good
+// // Map.addLayer(check16.select("NDVI"),{},'2016',false)  // good
+// // Map.addLayer(check17.select("NDVI"),{},'2017',false)  // pretty bad—striping, clouds
+// // Map.addLayer(check18.select("NDVI"),{},'2018',false)  // good
+// // Map.addLayer(check19.select("NDVI"),{},'2019',false)
+
+
+
+
+// var mergeBands = function(image, previous) {
+//   return ee.Image(previous).addBands(image);
+// };
+// var NDVI_unfit = ndvi_u.iterate(mergeBands, ee.Image([]));
+// print(NDVI_unfit,'NDVI_unfit')
+
+
+
+///////////////////////////////////////////////////////////////////////////////////////////
+////       *  *  *  *  *    RUN LANDTRENDR SEGMENTATION AND FIT   *  *  *  *  *       ////
+/////////////////////////////////////////////////////////////////////////////////////////
+// var lt1 = ltgee.runLT(startYear, endYear, startDay, endDay, aoi, index1, ftvList1, run_params);
+// var lt2 = ltgee.runLT(startYear, endYear, startDay, endDay, aoi, index2, ftvList2, run_params);
+// var lt3 = ltgee.runLT(startYear, endYear, startDay, endDay, aoi, index3, ftvList3, run_params);
+// var lt4 = ltgee.runLT(startYear, endYear, startDay, endDay, aoi, index4, ftvList4, run_params);
+
+// var tcbFTV = ltgee.getFittedData(lt1, startYear, endYear, ftvList1[0]);
+// var tcgFTV = ltgee.getFittedData(lt2, startYear, endYear, ftvList2[0]);
+// var tcwFTV = ltgee.getFittedData(lt3, startYear, endYear, ftvList3[0]);
+// var tcaFTV = ltgee.getFittedData(lt4, startYear, endYear, ftvList4[0]);
+// print(tcbFTV);
+// print(tcgFTV);
+// print(tcwFTV);
+// print(tcaFTV);
+
+// Map.addLayer(tcgFTV.select('1985'),{},'tcg1985_fit');
+// Map.addLayer(tcgFTV.select('2001'),{},'tcg2001_fit');
+// Map.addLayer(tcgFTV.select('2008'),{},'tcg2008_fit');
+// var TCG_fit_test3 = tcgFTV.select('1985');
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+////         Select fitted composite from each year, clip to ROI, convert to 16-bit signed integer         ////
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// var TCB_1984 = tcbFTV.select('1984').clip(test_roi).toInt16();
+// var TCB_1985 = tcbFTV.select('1985').clip(test_roi).toInt16();
+// var TCB_1986 = tcbFTV.select('1986').clip(test_roi).toInt16();
+// var TCB_1987 = tcbFTV.select('1987').clip(test_roi).toInt16();
+// var TCB_1988 = tcbFTV.select('1988').clip(test_roi).toInt16();
+// var TCB_1989 = tcbFTV.select('1989').clip(test_roi).toInt16();
+// var TCB_1990 = tcbFTV.select('1990').clip(test_roi).toInt16();
+// var TCB_1991 = tcbFTV.select('1991').clip(test_roi).toInt16();
+// var TCB_1992 = tcbFTV.select('1992').clip(test_roi).toInt16();
+// var TCB_1993 = tcbFTV.select('1993').clip(test_roi).toInt16();
+// var TCB_1994 = tcbFTV.select('1994').clip(test_roi).toInt16();
+// var TCB_1995 = tcbFTV.select('1995').clip(test_roi).toInt16();
+// var TCB_1996 = tcbFTV.select('1996').clip(test_roi).toInt16();
+// var TCB_1997 = tcbFTV.select('1997').clip(test_roi).toInt16();
+// var TCB_1998 = tcbFTV.select('1998').clip(test_roi).toInt16();
+// var TCB_1999 = tcbFTV.select('1999').clip(test_roi).toInt16();
+// var TCB_2000 = tcbFTV.select('2000').clip(test_roi).toInt16();
+// var TCB_2001 = tcbFTV.select('2001').clip(test_roi).toInt16();
+// var TCB_2002 = tcbFTV.select('2002').clip(test_roi).toInt16();
+// var TCB_2003 = tcbFTV.select('2003').clip(test_roi).toInt16();
+// var TCB_2004 = tcbFTV.select('2004').clip(test_roi).toInt16();
+// var TCB_2005 = tcbFTV.select('2005').clip(test_roi).toInt16();
+// var TCB_2006 = tcbFTV.select('2006').clip(test_roi).toInt16();
+// var TCB_2007 = tcbFTV.select('2007').clip(test_roi).toInt16();
+// var TCB_2008 = tcbFTV.select('2008').clip(test_roi).toInt16();
+// var TCB_2009 = tcbFTV.select('2009').clip(test_roi).toInt16();
+// var TCB_2010 = tcbFTV.select('2010').clip(test_roi).toInt16();
+// var TCB_2011 = tcbFTV.select('2011').clip(test_roi).toInt16();
+// var TCB_2012 = tcbFTV.select('2012').clip(test_roi).toInt16();
+// var TCB_2013 = tcbFTV.select('2013').clip(test_roi).toInt16();
+// var TCB_2014 = tcbFTV.select('2014').clip(test_roi).toInt16();
+// var TCB_2015 = tcbFTV.select('2015').clip(test_roi).toInt16();
+// var TCB_2016 = tcbFTV.select('2016').clip(test_roi).toInt16();
+// var TCB_2017 = tcbFTV.select('2017').clip(test_roi).toInt16();
+// var TCB_2018 = tcbFTV.select('2018').clip(test_roi).toInt16();
+
+// print(TCB_2014,'TCB_2014')
+// print(TCG_1999,'TCG_1999')
+// // var TCG_2014 = TCG_2014.toInt16()
+// // print(TCG_2014,'toINT16')
+// Map.addLayer(TCG_2013,{},'TCG_2013_fitted')
+
+///////////////////////////////////////////////////////////////////
+/////////// Calculate zonal statistics for each AIM plot //////////
+///////////////////////////////////////////////////////////////////
+
+// Map.addLayer(AIMBuffer, {color:'red'}, 'AIMBuffer', false)
+// print(AIMBuffer, 'AIMBuffer')
+
+// // Visualize NLCD tree cover from 2011
+// var nlcd = ee.Image('USGS/NLCD/NLCD2011');
+// var treecover = nlcd.select('percent_tree_cover')
+
+// var treeParams = {
+//   min: 0,
+//   max: 100,
+//   palette: ['FFFFFF', '008000']
+// }
+
+// var treeMasked = treecover.updateMask(treecover.gte(20));
+// Map.addLayer(treeMasked, treeParams, 'TreeCover masked', false)
+
+
+////////////////////////////////////////////////////
+////   ########   EXPORT COMMANDS   ########   ////
+//////////////////////////////////////////////////
+
+///////////////////////////////////////
+////////////  TCB   //////////////////
+/////////////////////////////////////
+// Export.image.toDrive({
+//   image: check13,
+//   description: 'NDVI_2013',
+//   region: NorCal,
+//   maxPixels: 1e13,
+//   crs: 'EPSG:26915',
+//   scale: 30
+// });

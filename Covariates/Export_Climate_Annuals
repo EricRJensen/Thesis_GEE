@@ -1,0 +1,803 @@
+/**** Start of imports. If edited, may not auto-convert in the playground. ****/
+var Daymet = ee.ImageCollection("NASA/ORNL/DAYMET_V3"),
+    GBbounds = ee.FeatureCollection("users/ericjensen41_default/Thesis/Project_Boundaries/GBbounds"),
+    AIMplots = ee.FeatureCollection("users/ericjensen41_default/Thesis/Plots/Allplots");
+/***** End of imports. If edited, may not auto-convert in the playground. *****/
+// Variables Calculated:
+// -------- Temperature 
+// Mean temperature: October-September (MT)
+// Spring temperature: April-May (SprT)
+// Summer temperature: July-August (SumT)
+// Winter temperature: November-February (WinT)
+// Growing season temperature: April-September (GrST)
+// Mean summer maximum temperature (SumMaxT)
+// Mean winter minimum temperature (WinMaxT)
+// Summer-winter temperature differential (SumWinDiffT)
+
+// -------- Precipitation
+// Annual precip: October-September (water year) (AP)
+// Spring precip: April-May (SprP)
+// Summer precip: July-August (SumP)
+// Winter preciptiation November-February (WinP)
+// Growing season precip: April-September (GrSP)
+
+// -------- Others:
+// Frost free period: Length of the frost-free period (days) (FFree)
+// Julian date of the last freezing date of spring (SprF)
+// Julian date of the first freezing date of autumn (AutF)
+// Degree-days >5 degrees C (DD5)
+// Degree-days <0 degrees C (DD0)
+// Degree-days >5 degrees C accumulating within the frost-free period (DD5ff)
+// Degree-days <0 degress C min temp (DD0Min)
+// Annual Dryness index: dd5/ap or sqrt(dd5)/map (once named ami annual moisture index) (ADI)
+// Summer Dryness index: gsdd5/gsp or sqrt(gsdd5)/gsp (once named smi, summer moisture index) (SDI)
+// Mean maximum SWE (SWE)
+
+// Link to the Rehfeldt model document: https://www.fs.fed.us/rm/pubs/rmrs_gtr165.pdf
+
+
+//  #################################################
+// ------------ Preprocess layers -------------------
+// Bounding box to clip by
+var GBbounds_f = ee.Feature(GBbounds.first())
+var GBbb = GBbounds_f.bounds().geometry()
+
+// Add a mean temperature band
+var calc_tmean = function(img){
+      var tmean = img.expression(
+        '(tmax + tmin) / 2', {
+          'tmax': img.select('tmax'),
+          'tmin': img.select('tmin')}).rename('tmean')
+      var imgSmean = img.addBands(tmean)
+      return(imgSmean)
+}
+var Daymet = Daymet.map(calc_tmean)
+
+// Add a binary band for frost free pixels for each date
+//  1 = frost-free, 0 = fros
+var calc_frostfree = function(img){
+  var frostfree = img.select('tmin').gte(0).rename('frostfree')
+  var img_wFF = img.addBands(frostfree)
+  return(img_wFF)
+}
+
+var Daymet = Daymet.map(calc_frostfree)
+
+// Add day of year band
+var addDate = function(image){
+  var doy = image.date().getRelative('day', 'year');
+  var doyBand = ee.Image.constant(doy).uint16().rename('doy')
+  doyBand = doyBand.updateMask(image.select('prcp').mask())
+  
+  return image.addBands(doyBand);
+};
+var Daymet = Daymet.map(addDate)
+
+
+
+
+// ------------ Temporal sequence -------------------
+// Filter to 30 year period
+var DM = Daymet.filterBounds(GBbb).select('prcp', 'tmean', 'swe', 'tmin', 'tmax', 'frostfree', 'doy')
+
+// Define start and end years for calculation
+var startYear = 1990;
+var endYear = 2019;
+
+// Make a list of years to generate composites for.
+var yearList = ee.List.sequence(startYear, endYear);
+
+
+// ##########################################################
+// ------------ Seasonal calendar filters -------------------
+// Last spring frost filter // January - July 
+var filterSprF = ee.Filter.calendarRange(1, 7, 'month')
+
+// First autumn frost filter // August - December
+var filterAutF = ee.Filter.calendarRange(8, 12, 'month')
+
+
+
+
+
+// ##########################################################
+// ------------ Calculate 30-year means -------------------
+
+// ------------ Calculate precipitation -------------------
+
+// Reducer for image collection to mean
+var MeanPReducer = ee.Reducer.sum();
+
+
+// Annual precipitation (MAP)
+var APCol = ee.ImageCollection(yearList.map(function(year){
+  var year_num = ee.Number(year)
+  var startdate = '-08-01' // August to August
+  var enddate = '-07-31'// August to August
+  var yearCol = DM.filterDate(ee.String(year_num.subtract(1).toInt()).cat(startdate), ee.String(year_num.toInt()).cat(enddate)).select("prcp");
+  var yearComp = yearCol.reduce(MeanPReducer).clip(GBbb).rename('MAP');
+  return yearComp.set({
+    'year': year});
+}));
+// print(APCol, 'APCol')
+Map.addLayer(APCol.first(), {min: 100, max: 600}, 'AP', false)
+
+
+// Spring precipitation (SprP)
+var SprPCol = ee.ImageCollection(yearList.map(function(year){
+  var year_num = ee.Number(year)
+  var startdate = '-04-01' // Based on Rehfeldt dates
+  var enddate = '-05-31'
+  var yearCol = DM.filterDate(ee.String(year_num.toInt()).cat(startdate), ee.String(year_num.toInt()).cat(enddate)).select("prcp");
+  var yearComp = yearCol.reduce(MeanPReducer).clip(GBbb).rename('SprP');
+  return yearComp.set({
+    'year': year});
+}));
+// print(SprPCol, 'SprPCol')
+Map.addLayer(SprPCol.first(), {min: 0, max: 100}, 'SprP', false)
+
+
+// Summer precipitation (SumP)
+var SumPCol = ee.ImageCollection(yearList.map(function(year){
+  var year_num = ee.Number(year)
+  var startdate = '-07-01'; // Based on Rehfeldt dates
+  var enddate = '-08-31';
+  var yearCol = DM.filterDate(ee.String(year_num.toInt()).cat(startdate), ee.String(year_num.toInt()).cat(enddate)).select("prcp");
+  var yearComp = yearCol.reduce(MeanPReducer).clip(GBbb).rename('SumP');
+  return yearComp.set({
+    'year': year});
+}));
+// print(SumPCol, 'SumPCol')
+Map.addLayer(SumPCol.first(), {min: 0, max: 50}, 'SumP', false)
+
+
+// Growing season precipitation (GrSP)
+var GrSPCol = ee.ImageCollection(yearList.map(function(year){
+  var year_num = ee.Number(year)
+  var startdate = '-04-01' // Based on Rehfeldt dates
+  var enddate = '-09-30'
+  var yearCol = DM.filterDate(ee.String(year_num.toInt()).cat(startdate), ee.String(year_num.toInt()).cat(enddate)).select("prcp");
+  var yearComp = yearCol.reduce(MeanPReducer).clip(GBbb).rename('GrSP');
+  return yearComp.set({
+    'year': year});
+}));
+// print(GrSPCol, 'GrSPCol')
+Map.addLayer(GrSPCol.first(), {min: 10, max: 150}, 'GrSP', false)
+
+
+// Winter temperature (WinP)
+var WinPCol = ee.ImageCollection(yearList.map(function(year){
+  var year_num = ee.Number(year)
+  var startdate = '-11-01' // Based on Rehfeldt dates
+  var enddate = '-02-28'
+  var yearCol = DM.filterDate(ee.String(year_num.subtract(1).toInt()).cat(startdate), ee.String(year_num.toInt()).cat(enddate)).select("prcp");
+  var yearComp = yearCol.reduce(MeanPReducer).clip(GBbb).rename('WinP');
+  return yearComp.set({'year': year})}));
+// print(WinPCol, 'WinPCol')
+Map.addLayer(WinPCol.first(), {min: 20, max: 200}, 'WinP', false)
+
+
+
+
+
+
+// ------------ Calculate temperature -----------------------
+
+// Reducer for image collection to mean
+var MeanTReducer = ee.Reducer.max();
+
+// Mean temperature (MT)
+var MTCol = ee.ImageCollection(yearList.map(function(year){
+  var year_num = ee.Number(year)
+  var startdate = '-08-01' // August to August
+  var enddate = '-07-31'// August to August
+  var yearCol = DM.filterDate(ee.String(year_num.subtract(1).toInt()).cat(startdate), ee.String(year_num.toInt()).cat(enddate)).select("tmean");
+  var yearComp = yearCol.reduce(MeanTReducer).clip(GBbb).rename('MT');
+  return yearComp.set({
+    'year': year});
+}));
+// print(MTCol, 'MTCol')
+Map.addLayer(MTCol.first(), {min: 10, max:30}, 'MT', false)
+
+
+// Mean spring temperature (SprT)
+var SprTCol = ee.ImageCollection(yearList.map(function(year){
+  var year_num = ee.Number(year)
+  var startdate = '-04-01' // Based on Rehfeldt dates
+  var enddate = '-05-31'
+  var yearCol = DM.filterDate(ee.String(year_num.toInt()).cat(startdate), ee.String(year_num.toInt()).cat(enddate)).select("tmean");
+  var yearComp = yearCol.reduce(MeanTReducer).clip(GBbb).rename('SprT');
+  return yearComp.set({
+    'year': year});
+}));
+// print(SprTCol, 'SprTCol')
+Map.addLayer(SprTCol.first(), {min: 15, max:30}, 'SprT', false)
+
+
+// Mean summer temperature (SumT)
+var SumTCol = ee.ImageCollection(yearList.map(function(year){
+  var year_num = ee.Number(year)
+  var startdate = '-07-01' // Based on Rehfeldt dates
+  var enddate = '-08-31'
+  var yearCol = DM.filterDate(ee.String(year_num.toInt()).cat(startdate), ee.String(year_num.toInt()).cat(enddate)).select("tmean");
+  var yearComp = yearCol.reduce(MeanTReducer).clip(GBbb).rename('SumT');
+  return yearComp.set({
+    'year': year});
+}));
+// print(SumTCol, 'SumTCol')
+Map.addLayer(SumTCol.first(), {min: 18, max:35}, 'SumT', false)
+
+// Mean growing season temperature (GrST)
+var GrSTCol = ee.ImageCollection(yearList.map(function(year){
+  var year_num = ee.Number(year)
+  var startdate = '-04-01' // Based on Rehfeldt dates
+  var enddate = '-09-30'
+  var yearCol = DM.filterDate(ee.String(year_num.toInt()).cat(startdate), ee.String(year_num.toInt()).cat(enddate)).select("tmean");
+  var yearComp = yearCol.reduce(MeanTReducer).clip(GBbb).rename('GrST');
+  return yearComp.set({
+    'year': year});
+}));
+// print(GrSTCol, 'GrSTCol')
+Map.addLayer(GrSTCol.first(), {min: 12, max:35}, 'GrST', false)
+
+
+// Mean winter temperature (WinT)
+var WinTCol = ee.ImageCollection(yearList.map(function(year){
+  var year_num = ee.Number(year)
+  var startdate = '-11-01' // Based on Rehfeldt dates
+  var enddate = '-02-28'
+  var yearCol = DM.filterDate(ee.String(year_num.subtract(1).toInt()).cat(startdate), ee.String(year_num.toInt()).cat(enddate)).select("tmean");
+  var yearComp = yearCol.reduce(MeanTReducer).clip(GBbb).rename('WinT');
+  return yearComp.set({
+    'year': year});
+}));
+// print(WinTCol, 'WinTCol')
+Map.addLayer(WinTCol.first(), {min: 0, max:25}, 'WinT', false)
+
+
+// Summer-winter mean temperature differential (SumWinDiffT)
+var SumWinDiffTCol = ee.ImageCollection(yearList.map(function(year){
+  var SumT = SumTCol.filterMetadata('year', 'equals', year).first()
+  var WinT = WinTCol.filterMetadata('year', 'equals', year).first()
+  var SumWinDiff = SumT.subtract(WinT)
+  return SumWinDiff.rename('SumWinDiff').set({'year': year});
+}));
+// print(SumWinDiffTCol, 'SumWinDiffCol')
+Map.addLayer(SumWinDiffTCol.first(), {min: 10, max: 22}, 'SumWinDiffT', false)
+
+
+
+
+
+
+// ------------ Calculate seasonal extreme temperatures -------------------
+// ##### Mean summer maximum (SumMaxT) #####
+// Reducer for image collection to annual maximum
+var SumMaxTReducer = ee.Reducer.max();
+
+// Map reducer over the list of years to generate image collections of annual maximum images from November (previous year) to April (current year)
+// Stack exchange: https://gis.stackexchange.com/questions/340433/making-intra-annual-image-composites-for-a-series-of-years-in-google-earth-engin
+var SumMaxTCol = ee.ImageCollection(yearList.map(function(year){
+  var year_num = ee.Number(year)
+  var startdate = '-06-01' // Start in November
+  var enddate = '-10-01'// End in April
+  var yearCol = DM.filterDate(ee.String(year_num.toInt()).cat(startdate), ee.String(year_num.toInt()).cat(enddate)).select("tmax");
+  var yearComp = yearCol.reduce(SumMaxTReducer).clip(GBbb).rename('SumMaxT');
+  return yearComp.set({
+    'year': year});
+}));
+// print(SumMaxTCol, 'SumMaxTCol')
+Map.addLayer(SumMaxTCol.first(), {min:25, max:45}, 'SumMaxT', false)
+
+
+// ##### Mean winter minimum (WinMaxT) #####
+// Reducer for image collection to annual minimum
+var WinMinTReducer = ee.Reducer.min();
+
+// Map reducer over the list of years to generate image collections of annual maximum images from November (previous year) to April (current year)
+// Stack exchange: https://gis.stackexchange.com/questions/340433/making-intra-annual-image-composites-for-a-series-of-years-in-google-earth-engin
+var WinMinTCol = ee.ImageCollection(yearList.map(function(year){
+  var year_num = ee.Number(year)
+  var startdate = '-11-01' // Start in November
+  var enddate = '-04-01'// End in April
+  var yearCol = DM.filterDate(ee.String(year_num.subtract(1).toInt()).cat(startdate), ee.String(year_num.toInt()).cat(enddate)).select("tmin");
+  var yearComp = yearCol.reduce(WinMinTReducer).clip(GBbb).rename('WinMinT');
+  return yearComp.set({
+    'year': year});
+}));
+// print(WinMinTCol, 'WinMinTCol')
+Map.addLayer(WinMinTCol.first(), {min:-25, max:-2}, 'WinMinT', false)
+
+
+
+
+
+
+// ------------ Calculate frost free period, last frost and first frost -------------------
+// SF: rehfeldt 2006 has this crazy way of estimating ffp using stepwise regression because
+//     they don't have daily maps. Since we have daily maps this way looks good.
+//     In reading through the code I didn't see any problems but I didn't do any thorough checks or anything.
+
+// Mask pixels with 'tmin' < 0 and keep only pixels when frost occurred and only the DOY band
+var DM_frost  = DM.map(function(image){
+  return image.updateMask(image.select('tmin').lt(0)).select('doy');
+});
+
+// Filter by date to create spring frost and autumn frost collections
+var SprFCol = DM_frost.filter(filterSprF)
+var AutFCol = DM_frost.filter(filterAutF)
+
+// Define reducers for last spring frost and first autumn frost
+var SprFReducer = ee.Reducer.lastNonNull();
+var AutFReducer = ee.Reducer.firstNonNull();
+
+// Map reducer over the list of years to generate image collections for spring and autumn frost with a composite for each year.
+// Spring frost
+var SprFCol = ee.ImageCollection(yearList.map(function(year){
+  var yearCol = SprFCol.filter(ee.Filter.calendarRange(year, year, 'year'));
+  var yearComp = yearCol.reduce(SprFReducer).clip(GBbb).rename('SprF');
+  return yearComp.set({
+    'year': year});
+}));
+// print(SprFCol, 'SprFCol')
+Map.addLayer(SprFCol.first(), {min:0, max:200}, 'SprF', false)
+
+
+// Autumn frost
+var AutFCol = ee.ImageCollection(yearList.map(function(year){
+  var yearCol = AutFCol.filter(ee.Filter.calendarRange(year, year, 'year'));
+  var yearComp = yearCol.reduce(AutFReducer).clip(GBbb).rename('AutF');
+  return yearComp.set({
+    'year': year});
+}));
+// print(AutFCol, 'AutFCol')
+Map.addLayer(AutFCol.first(), {min:200, max:360}, 'AutF', false)
+
+
+// Frost free period
+var FFreeCol = ee.ImageCollection(yearList.map(function(year){
+  var SprF = SprFCol.filterMetadata('year', 'equals', year).first()
+  var AutF = AutFCol.filterMetadata('year', 'equals', year).first()
+  var FFree = AutF.subtract(SprF)
+  return FFree.rename('FFree').set({'year': year});
+}));
+// print(FFreeCol, 'FFreeCol')
+Map.addLayer(FFreeCol.first(), {min:0, max:250}, 'FFree', false)
+
+
+
+
+// ------------- Calculate growing degree days ------------------------
+
+// ------------- Greater than 5-degree days within the frost free period
+// // Function to filter and calculate 5-degree-days for each day during frost free period
+// var calc_dd5_ff = function(img, year){
+//   //  Add degree day band
+//   var dd5 = ee.Image(img.select('tmean').subtract(5)).rename(['dd5ff']) // 5-degree-day calculation
+//   var img_dd5 = img.addBands(dd5).select(['doy', 'dd5ff']) // add 5-degree-day band to image 
+  
+//   // Filter dd5 values lt 0
+//   var dd5_gte0_mask = img_dd5.select('dd5ff').gte(0) // Mask pixels of dd5 less than 0
+//   var img_dd5_clean = img_dd5.updateMask(dd5_gte0_mask) // Apply mask
+  
+//   // Using same year as the image to get ffp—SF
+//   var SprF_mask = img_dd5_clean.select('doy').gt(SprFCol.filterMetadata('year', 'equals', year).first()) // filter pixels based on doy < doy of last spring frost
+//   var AutF_mask = img_dd5_clean.select('doy').lt(AutFCol.filterMetadata('year', 'equals', year).first()) 
+  
+//   var img_dd5_ff = img_dd5_clean.updateMask(SprF_mask).updateMask(AutF_mask) // apply masks to image to create frostfree image
+  
+//   return img_dd5_ff
+// }
+
+// // Reducer for image collection to annual sum
+// var DD5Reducer = ee.Reducer.sum();
+
+// Map degree day filtering function and sum reducer over annual image collection to produce annual accumulations of 5-degree-days during frost free period
+// Stack exchange: https://gis.stackexchange.com/questions/340433/making-intra-annual-image-composites-for-a-series-of-years-in-google-earth-engin
+// var DD5ffCol = ee.ImageCollection(yearList.map(function(year){
+//   var year_num = ee.Number(year)
+//   var startdate = '-01-01' // Entire year
+//   var enddate = '-01-01'// Entire year
+//   var yearCol = DM.filterDate(ee.String(year_num.toInt()).cat(startdate), ee.String(year_num.add(1).toInt()).cat(enddate)); // filter by dates
+//   var DD5Col = yearCol.map(function(i){return calc_dd5_ff(i, year)}) // Map DD5 calculation function over annual image collection // SF: Changed to use FFP for same year
+//   var yearComp = DD5Col.reduce(DD5Reducer).clip(GBbb).select('dd5ff_sum').rename('DD5ff') // summing reducer to return image of accumulated degree days
+//   return yearComp.set({
+//     'year': year});
+// }));
+// print(DD5ffCol, 'DD5ffCol')
+// Map.addLayer(DD5ffCol.first(), {min:0, max:4000}, 'DD5ff', false)
+
+
+
+
+// ------------- Greater than 5-degree days, no constraint on frost free period
+// Function to filter and calculate 5-degree-days for each day
+var calc_dd5 = function(img){
+  //  Add degree day band
+  var dd5 = ee.Image(img.select('tmean').subtract(5)).rename(['dd5']) // 5-degree-day calculation
+  var img_dd5 = img.addBands(dd5).select(['doy', 'dd5']) // add 5-degree-day band to image 
+  
+  // Filter dd5 values lt 0
+  var dd5_gte0_mask = img_dd5.select('dd5').gte(0) // Mask pixels of dd5 less than 0
+  var img_dd5_clean = img_dd5.updateMask(dd5_gte0_mask) // Apply mask
+  
+  return img_dd5_clean
+}
+
+// Reducer for image collection to annual sum
+var DD5Reducer = ee.Reducer.sum();
+
+// Map degree day filtering function and sum reducer over annual image collection to produce annual accumulations of 5-degree-days
+// Stack exchange: https://gis.stackexchange.com/questions/340433/making-intra-annual-image-composites-for-a-series-of-years-in-google-earth-engin
+var DD5Col = ee.ImageCollection(yearList.map(function(year){
+  var year_num = ee.Number(year)
+  var startdate = '-01-01' // Entire year
+  var enddate = '-01-01'// Entire year
+  var yearCol = DM.filterDate(ee.String(year_num.toInt()).cat(startdate), ee.String(year_num.add(1).toInt()).cat(enddate)); // filter by dates
+  var DD5Col = yearCol.map(calc_dd5) // Map DD5 calculation function over annual image collection
+  var yearComp = DD5Col.reduce(DD5Reducer).clip(GBbb).select('dd5_sum').rename('DD5') // summing reducer to return image of accumulated degree days
+  return yearComp.set({
+    'year': year});
+}));
+// print(DD5Col, 'DD5Col')
+Map.addLayer(DD5Col.first(), {min:0, max:5000}, 'DD5', false)
+
+
+
+
+
+// ------------- Less than 0-degree days, no constraint on frost-free period
+// Function to filter and calculate 0-degree-days for each day
+var calc_dd0 = function(img){
+  //  Add degree day band
+  var dd0 = ee.Image(img.select('tmean').subtract(0)).rename(['dd0']) // 0-degree-day calculation - no calculation needed
+  var img_dd0 = img.addBands(dd0).select(['doy', 'dd0']) // add 0-degree-day band to image 
+  
+  // Filter dd0 values gt 0
+  var dd0_lte0_mask = img_dd0.select('dd0').lte(0) // Mask pixels of dd0 greater than 0
+  var img_dd0_clean = img_dd0.updateMask(dd0_lte0_mask) // Apply mask
+  
+  // Convert negative values to absolute values (degree days)
+  // SF: Why absolute? 
+  // EJ: In the calculation of degree days in Rehfeldt it says to subtract the threshold temperature (0 degrees) from the mean temperature 
+  // for that day. So, if the mean temperature is -5 °C then the calculation is -5 - 0 = -5. However, my understanding is that for degree-days 
+  // below 0°C (seemingly synonymously known as freezing degree days) those values should be expressed as a positive value So for that day 
+  // described previously there was an accumulation of 5 freezing degree days. If you see the graph on page 17 in Rehfeldt degree-days <0°C are 
+  // expressed positively. This seems to be backed up elsewhere: https://sites.google.com/site/cryospherecomputing/fdd
+  var img_dd0_abs = img_dd0_clean.abs()
+  
+  return img_dd0_abs
+}
+
+// Reducer for image collection to annual sum
+var DD0Reducer = ee.Reducer.sum();
+
+// Map degree day filtering function and sum reducer over annual image collection to produce annual accumulations of 5-degree-days
+// Stack exchange: https://gis.stackexchange.com/questions/340433/making-intra-annual-image-composites-for-a-series-of-years-in-google-earth-engin
+var DD0Col = ee.ImageCollection(yearList.map(function(year){
+  var year_num = ee.Number(year)
+  var startdate = '-08-01' // Entire year from August to August: https://journals.ametsoc.org/doi/pdf/10.1175/JAMC-D-14-0119.1
+  var enddate = '-08-01'// See above
+  var yearCol = DM.filterDate(ee.String(year_num.subtract(1).toInt()).cat(startdate), ee.String(year_num.toInt()).cat(enddate)); // filter by dates
+  var DD0Col = yearCol.map(calc_dd0) // Map DD5 calculation function over annual image collection
+  var yearComp = DD0Col.reduce(DD0Reducer).clip(GBbb).select('dd0_sum').rename('DD0') // summing reducer to return image of accumulated degree days
+  return yearComp.set({
+    'year': year});
+}));
+// print(DD0Col, 'DD0Col')
+Map.addLayer(DD0Col.first(), {min:0, max:500}, 'DD0', false)
+
+
+
+
+// ------------- Less than 0-degree days for minimum temperature, no constraint on frost-free period
+// Function to filter and calculate 0-degree-days for each day
+var calc_dd0_min = function(img){
+  //  Add degree day band
+  var dd0 = ee.Image(img.select('tmin').subtract(0)).rename(['dd0']) // 0-degree-day calculation - no calculation needed
+  var img_dd0 = img.addBands(dd0).select(['doy', 'dd0']) // add 0-degree-day band to image 
+  
+  // Filter dd0 values gt 0
+  var dd0_lte0_mask = img_dd0.select('dd0').lte(0) // Mask pixels of dd0 greater than 0
+  var img_dd0_clean = img_dd0.updateMask(dd0_lte0_mask) // Apply mask
+  
+  // Convert negative values to absolute values (degree days)
+  // SF: Why absolute? 
+  // EJ: In the calculation of degree days in Rehfeldt it says to subtract the threshold temperature (0 degrees) from the mean temperature 
+  // for that day. So, if the mean temperature is -5 °C then the calculation is -5 - 0 = -5. However, my understanding is that for degree-days 
+  // below 0°C (seemingly synonymously known as freezing degree days) those values should be expressed as a positive value So for that day 
+  // described previously there was an accumulation of 5 freezing degree days. If you see the graph on page 17 in Rehfeldt degree-days <0°C are 
+  // expressed positively. This seems to be backed up elsewhere: https://sites.google.com/site/cryospherecomputing/fdd
+  var img_dd0_abs = img_dd0_clean.abs()
+  
+  return img_dd0_abs
+}
+
+// Reducer for image collection to annual sum
+var DD0Reducer = ee.Reducer.sum();
+
+// Map degree day filtering function and sum reducer over annual image collection to produce annual accumulations of 5-degree-days
+// Stack exchange: https://gis.stackexchange.com/questions/340433/making-intra-annual-image-composites-for-a-series-of-years-in-google-earth-engin
+var DD0MinCol = ee.ImageCollection(yearList.map(function(year){
+  var year_num = ee.Number(year)
+  var startdate = '-08-01' // Entire year from August to August: https://journals.ametsoc.org/doi/pdf/10.1175/JAMC-D-14-0119.1
+  var enddate = '-08-01'// See above
+  var yearCol = DM.filterDate(ee.String(year_num.subtract(1).toInt()).cat(startdate), ee.String(year_num.toInt()).cat(enddate)); // filter by dates
+  var DD0Col = yearCol.map(calc_dd0_min) // Map DD5 calculation function over annual image collection
+  var yearComp = DD0Col.reduce(DD0Reducer).clip(GBbb).select('dd0_sum').rename('DD0min') // summing reducer to return image of accumulated degree days
+  return yearComp.set({
+    'year': year});
+}));
+// print(DD0MinCol, 'DD0MinCol')
+Map.addLayer(DD0MinCol.first(), {min:0, max:2000}, 'DD0Min', false)
+
+
+
+
+
+
+
+// ------------- Calculate dryness indices
+
+// Annual dryness index
+var ADICol = ee.ImageCollection(yearList.map(function(year){
+  var DD5 = DD5Col.filterMetadata('year', 'equals', year).first()
+  var AP = APCol.filterMetadata('year', 'equals', year).first()
+  var ADI = DD5.divide(AP)
+  return ADI.rename('ADI').set({'year': year});
+}));
+// print(ADICol, 'ADICol')
+Map.addLayer(ADICol.first(), {min:0, max:30}, 'ADI',false)
+
+
+// Summer dryness index
+// var SDICol = ee.ImageCollection(yearList.map(function(year){
+//   var DD5ff = DD5ffCol.filterMetadata('year', 'equals', year).first()
+//   var GrSP = GrSPCol.filterMetadata('year', 'equals', year).first()
+//   var SDI = DD5ff.divide(GrSP)
+//   return SDI.rename('SDI').set({'year': year});
+// }));
+// // print(SDICol, 'SDICol')
+// Map.addLayer(SDICol.first(), {min:0, max:30}, 'SDI', false)
+
+
+
+
+// ------------- Calculate mean maximum snow water equivalent
+// Reducer for image collection to annual maximum
+var SWEReducer = ee.Reducer.max();
+
+// Map reducer over the list of years to generate image collections of annual maximum images from November (previous year) to April (current year)
+// Stack exchange: https://gis.stackexchange.com/questions/340433/making-intra-annual-image-composites-for-a-series-of-years-in-google-earth-engin
+var SWECol = ee.ImageCollection(yearList.map(function(year){
+  var year_num = ee.Number(year)
+  var startdate = '-11-01' // Start in November
+  var enddate = '-04-01'// End in April
+  var yearCol = DM.filterDate(ee.String(year_num.subtract(1).toInt()).cat(startdate), ee.String(year_num.toInt()).cat(startdate)).select("swe");
+  var yearComp = yearCol.reduce(SWEReducer).clip(GBbb).rename('SWE');
+  return yearComp.set({
+    'year': year});
+}));
+// print(SWECol, 'SWECol')
+Map.addLayer(SWECol.first(), {min:0, max:50}, 'SWE', false)
+
+
+
+
+
+
+// --------------- Compile annual multi-band images for running reduce regions over
+
+// Function to compile annual image collections
+var compile_images = function(year){
+  var AP = APCol.filterMetadata('year', 'equals', year).first()
+  var SprP = SprPCol.filterMetadata('year', 'equals', year).first()
+  var SumP = SumPCol.filterMetadata('year', 'equals', year).first()
+  var GrSP = GrSPCol.filterMetadata('year', 'equals', year).first()
+  var WinP = WinPCol.filterMetadata('year', 'equals', year).first()
+  var MT = MTCol.filterMetadata('year', 'equals', year).first()
+  var SprT = SprTCol.filterMetadata('year', 'equals', year).first()
+  var SumT = SumTCol.filterMetadata('year', 'equals', year).first()
+  var GrST = GrSTCol.filterMetadata('year', 'equals', year).first()
+  var WinT = WinTCol.filterMetadata('year', 'equals', year).first()
+  var SumWinDiffT = SumWinDiffTCol.filterMetadata('year', 'equals', year).first()
+  var SumMaxT = SumMaxTCol.filterMetadata('year', 'equals', year).first()
+  var WinMinT = WinMinTCol.filterMetadata('year', 'equals', year).first()
+  var SprF = SprFCol.filterMetadata('year', 'equals', year).first()
+  var AutF = AutFCol.filterMetadata('year', 'equals', year).first()
+  var FFree = FFreeCol.filterMetadata('year', 'equals', year).first()
+  // var DD5ff = DD5ffCol.filterMetadata('year', 'equals', year).first()
+  var DD5 = DD5Col.filterMetadata('year', 'equals', year).first()
+  var DD0 = DD0Col.filterMetadata('year', 'equals', year).first()
+  var DD0Min = DD0MinCol.filterMetadata('year', 'equals', year).first()
+  var ADI = ADICol.filterMetadata('year', 'equals', year).first()
+  // var SDI = SDICol.filterMetadata('year', 'equals', year).first()
+  var SWE = SWECol.filterMetadata('year', 'equals', year).first()
+  return AP.addBands([SprP, SumP, GrSP, WinP, MT, SprT, SumT, GrST, WinT, SumWinDiffT, SumMaxT, WinMinT, SprF, AutF, FFree, DD5, 
+                      DD0, DD0Min, ADI, SWE])}
+
+// Run function for each year
+var Cli_1994 = compile_images(1994)
+// var Cli_2001 = compile_images(2001)
+// var Cli_2002 = compile_images(2002)
+// var Cli_2003 = compile_images(2003)
+// var Cli_2004 = compile_images(2004)
+// var Cli_2005 = compile_images(2005)
+// var Cli_2006 = compile_images(2006)
+// var Cli_2007 = compile_images(2007)
+// var Cli_2008 = compile_images(2008)
+// var Cli_2009 = compile_images(2009)
+// var Cli_2010 = compile_images(2010)
+// var Cli_2011 = compile_images(2011)
+// var Cli_2012 = compile_images(2012)
+// var Cli_2013 = compile_images(2013)
+// var Cli_2014 = compile_images(2014)
+// var Cli_2015 = compile_images(2015)
+// var Cli_2016 = compile_images(2016)
+// var Cli_2017 = compile_images(2017)
+// var Cli_2018 = compile_images(2018)
+// var Cli_2019 = compile_images(2019)
+// print(Annual_Cli_2000, 'Annual_Cli_2000')
+
+// Compile into image collection
+// var Annual_Cli = ee.ImageCollection([Cli_2000, Cli_2001, Cli_2002, Cli_2003, Cli_2004, Cli_2005, Cli_2006, Cli_2007, Cli_2008, Cli_2009, Cli_2010,
+//                                     Cli_2011, Cli_2012, Cli_2013, Cli_2014, Cli_2015, Cli_2016, Cli_2017, Cli_2018, Cli_2019])
+
+
+// print(Cli_2017)
+
+
+
+
+
+// --------------- Export Reduce Regions Statistics -------------------------------
+
+// // Get a list of visit years in AIMplots feature collection to map function over
+// // Convert AIMplots to a list
+// var AIMlist = AIMplots.toList(10000)
+
+// // Map function over feature collection to get years and reduce to distinct values
+// var get_VisitYear = function(f){
+//   var F = ee.Feature(f)
+//   return F.get('VisitYear') 
+// }
+
+// var VisitYearlist_cli = AIMlist.map(get_VisitYear).distinct().getInfo()
+// var VisitYearlist_length_cli = VisitYearlist_cli.length
+// print(VisitYearlist_length_cli)
+
+
+// // For loop over the client side years lists to export the reduce regions
+// for (var i = 0; i < VisitYearlist_length_cli; i++){
+//   var year = VisitYearlist_cli[i]
+//   var yearstr = year.toString()
+//   var AIMYr = AIMplots.filterMetadata('VisitYear', 'equals', year)
+//   var CliYr = Annual_Cli.filterMetadata('year', 'equals', year).first()
+//   var AIMrr = CliYr.reduceRegions({
+//                       collection: AIMYr,
+//                       reducer: ee.Reducer.mean(),
+//                       scale: 1000,
+//                       tileScale:16})
+                      
+//   Export.table.toDrive({
+//   collection: AIMrr,
+//   description:'Ann_Cli_Predictors_' + yearstr,
+//   fileFormat: 'csv'}) 
+// }
+
+// var AIMrr = Cli_2019.reduceRegions({
+//                     collection: AIMplots.filterMetadata('VisitYear', 'equals', 2019),
+//                     reducer: ee.Reducer.mean(),
+//                     scale: 1000,
+//                     tileScale:16 })
+                    
+// Export.table.toDrive({
+// collection: AIMrr,
+// description:'Ann_Cli_Predictors_2019',
+// fileFormat: 'csv'}) 
+
+
+
+
+
+// Export top climate predictor images for predictive maps // Cast to Int16 to speed up export
+// var CliMeans_list = ee.List([MAP.toInt16(), DD5ff.toInt16(), DD0.toInt16(), adi.multiply(1000).toInt16(), SWE.multiply(1000).toInt16()])
+
+// var CliNames_list = ['MAP', 'DD5ff', 'DD0', 'adi', 'SWE']
+
+
+// // Client-side for loop to produce exports; only looping over client-side JS arrays, so okay per Theobald's procedures
+// for (var i = 0; i < 5; i++) {
+//   // Get image
+//   var img = ee.Image(CliMeans_list.get(i))
+//   print(img)
+  
+//   // Reproject and increase resolution to 30 meters for calculating focal grid
+//   // var new_crs = ee.Projection('EPSG:4326')
+//   // var img_30m = img.reproject(new_crs, null, 30)
+  
+//   // var img_focal = img.focal_mean(100, 'circle', 'meters')
+  
+//   // Map.addLayer(img_focal, {min:100, max:300}, 'test', false)
+//   //Export image to Drive
+//   Export.image.toDrive({
+//       image: img,
+//       description: CliNames_list[i] + '_img',
+//       fileNamePrefix: CliNames_list[i] + '_img',
+//       fileFormat: 'GeoTiff',
+//       scale: 30,
+//       maxPixels: 1e13,
+//       crs: 'EPSG:4326',
+//       region: GBbb}) 
+// }
+ 
+
+
+// -------------- Export images ---------------------------
+var Cli_2016 = compile_images(2016)
+var year_to_export = '2016'
+var img_to_export = Cli_2016
+
+var cliyear_export = img_to_export.select(['WinP', 'ADI', 'SWE', 'SumP', 'DD5', 'MAP', 'WinMinT'])
+// print(cliyear_export)
+
+// // Reproject and resample image by nearest neighbors to match Landsat
+var LS_ref = ee.Image('users/zackrwerner/landsat_harm_reference')
+var LS_proj = LS_ref.projection() // get projection of landsat harmonized image
+var cliyear_resample = cliyear_export.reproject(LS_proj) //reproject defaults to nn 
+
+
+// Calculate focal means at 100 meter scale using reduceNeighborhood
+var cliyear_resample_focal = cliyear_resample.reduceNeighborhood({
+  reducer: ee.Reducer.mean(),
+  kernel: ee.Kernel.circle(100, 'meters')})
+  .rename(['yr_WinP', 'yr_ADI', 'yr_SWE', 'yr_SumP', 'yr_DD5', 'yr_MAP', 'yr_WinMinT'])
+
+
+// Get list of bandnames to export over
+var namelist = cliyear_resample_focal.bandNames().getInfo();
+// print(namelist,'namelist');
+
+
+for (var i = 0; i < 7; i++) {
+  // Get image
+  var img = cliyear_resample_focal.select(namelist[i]).clip(GBbounds.geometry());
+  
+  // Export results to drive
+  Export.image.toDrive({
+      image: img,
+      description: namelist[i] + '_' + year_to_export,
+      scale: 30,
+      maxPixels: 1e13,
+      region: GBbounds});}  
+
+
+
+
+
+
+
+
+// ------------ Visualize data--------------
+//  Visualization parameters for temperature data
+var pParams = {
+  min: 100,
+  max: 300,
+  palette: ['8B4513','ffffff','00ff00']
+};
+var tParams = {
+  min: 0,
+  max: 20,
+  palette: ['113EDA','ffffff','CF523F']
+};
+
+var ffParams = {
+  min: -300,
+  max: -175,
+  palette: ['113EDA','ffffff','CF523F']
+};
+// Map.addLayer(GBbounds, {}, 'GBbounds',false)
+// Map.addLayer(MAP, pParams, 'MAP',false)
+// Map.addLayer(MT, tParams, 'MAM',false)
+// Map.addLayer(AIMplots, {}, 'AIM',false)
+// Map.addLayer(diffDays, ffParams, 'ff',false)
